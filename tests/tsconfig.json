@@ -1,0 +1,24 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["vitest/globals", "node"],
+    "moduleResolution": "Bundler",
+    "module": "ESNext",
+    "noEmit": true,
+    "jsx": "preserve",
+    "paths": {
+      "@app/api/*": ["../apps/api/src/*"],
+      "@app/db": ["../packages/db/index.ts"],
+      "@app/db/*": ["../packages/db/*"],
+      "@app/types": ["../packages/types/index.ts"],
+      "@app/types/*": ["../packages/types/*"]
+    }
+  },
+  "include": [
+    "./**/*.ts",
+    "../apps/**/__tests__/**/*.ts",
+    "../apps/**/*.test.ts",
+    "../packages/**/*.test.ts"
+  ],
+  "exclude": ["node_modules", "dist", "**/*.spec.ts"]
+}

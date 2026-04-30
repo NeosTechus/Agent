@@ -1,0 +1,17 @@
+# Cloudflare Pages config for the customer web app.
+# Deployed via `wrangler pages deploy` in CI.
+name = "web"
+pages_build_output_dir = ".next"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+[env.preview]
+# Per-PR previews — Cloudflare Pages auto-creates preview URLs.
+
+[env.staging]
+# Staging Pages project — separate project from production.
+# REPLACE_WITH_STAGING_PAGES_PROJECT_NAME
+
+[env.production]
+# Production Pages project.
+# REPLACE_WITH_PROD_PAGES_PROJECT_NAME

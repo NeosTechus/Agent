@@ -1,0 +1,45 @@
+{
+  "name": "ai-receptionist",
+  "version": "0.0.0",
+  "private": true,
+  "packageManager": "pnpm@9.0.0",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "lint": "pnpm -r --if-present lint",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "test": "vitest run --config tests/vitest.config.ts",
+    "test:watch": "vitest --config tests/vitest.config.ts",
+    "test:integration": "vitest run --config tests/vitest.config.ts --dir tests/integration",
+    "test:coverage": "vitest run --config tests/vitest.config.ts --coverage",
+    "test:e2e": "playwright test --config tests/playwright.config.ts",
+    "test:packages": "pnpm -r --if-present test",
+    "build": "pnpm -r --if-present build",
+    "dev": "pnpm -r --parallel --if-present dev",
+    "format": "prettier --write \"**/*.{ts,tsx,js,json,md}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,json,md}\"",
+    "setup": "pnpm install && cp -n apps/api/.dev.vars.example apps/api/.dev.vars 2>/dev/null || true && cp -n apps/web/.env.example apps/web/.env.local 2>/dev/null || true && cp -n apps/admin/.env.example apps/admin/.env.local 2>/dev/null || true && echo '\\nSetup done. Edit apps/*/{.dev.vars,.env.local} with your credentials, then run: pnpm dev'",
+    "db:generate": "pnpm --filter @app/db drizzle-kit generate",
+    "db:migrate:local": "wrangler d1 migrations apply app-local --local --config apps/api/wrangler.toml",
+    "db:migrate:staging": "wrangler d1 migrations apply app-staging --remote --env staging --config apps/api/wrangler.toml",
+    "db:migrate:production": "wrangler d1 migrations apply app-prod --remote --env production --config apps/api/wrangler.toml",
+    "deploy:staging": "pnpm --filter @app/api deploy:staging",
+    "deploy:production": "pnpm --filter @app/api deploy:production"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250101.0",
+    "@faker-js/faker": "^9.0.0",
+    "@playwright/test": "^1.48.0",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "@vitest/coverage-v8": "^2.0.0",
+    "eslint": "^9.0.0",
+    "hono": "^4.6.0",
+    "msw": "^2.4.0",
+    "prettier": "^3.3.0",
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0",
+    "zod": "^3.23.8"
+  }
+}

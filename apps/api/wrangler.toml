@@ -1,0 +1,365 @@
+# Cloudflare Workers config for the API.
+# Environments: local (implicit via `wrangler dev`), preview, staging, production.
+# All placeholder IDs prefixed with REPLACE_WITH_ — see /docs/DEPLOYMENT.md.
+
+name = "api"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+# ---------------------------------------------------------------------------
+# Default (local dev) bindings — used by `wrangler dev`.
+# ---------------------------------------------------------------------------
+[[d1_databases]]
+binding = "DB"
+database_name = "app-local"
+database_id = "REPLACE_WITH_LOCAL_D1_ID"
+
+[[r2_buckets]]
+binding = "RECORDINGS"
+bucket_name = "local-recordings"
+
+[[r2_buckets]]
+binding = "KNOWLEDGE_BASE"
+bucket_name = "local-knowledge-base"
+
+[[r2_buckets]]
+binding = "VOICE_SAMPLES"
+bucket_name = "local-voice-samples"
+
+[[r2_buckets]]
+binding = "CONSENT_RECORDINGS"
+bucket_name = "local-consent-recordings"
+
+[[kv_namespaces]]
+binding = "SESSIONS"
+id = "REPLACE_WITH_LOCAL_KV_SESSIONS_ID"
+
+[[kv_namespaces]]
+binding = "RATE_LIMITS"
+id = "REPLACE_WITH_LOCAL_KV_RATE_LIMITS_ID"
+
+[[kv_namespaces]]
+binding = "WEBHOOK_DEDUP"
+id = "REPLACE_WITH_LOCAL_KV_WEBHOOK_DEDUP_ID"
+
+[[kv_namespaces]]
+binding = "FEATURE_FLAGS"
+id = "REPLACE_WITH_LOCAL_KV_FEATURE_FLAGS_ID"
+
+[[queues.producers]]
+binding = "WEBHOOK_DELIVERY_QUEUE"
+queue = "webhook-delivery"
+
+[[queues.producers]]
+binding = "EMAIL_SEND_QUEUE"
+queue = "email-send"
+
+[[queues.producers]]
+binding = "KB_INDEXING_QUEUE"
+queue = "kb-indexing"
+
+[[queues.producers]]
+binding = "CALL_GRADING_QUEUE"
+queue = "call-grading"
+
+[[queues.producers]]
+binding = "USAGE_AGGREGATION_QUEUE"
+queue = "usage-aggregation"
+
+[[queues.producers]]
+binding = "DIGEST_EMAILS_QUEUE"
+queue = "digest-emails"
+
+# Single multiplexed queue consumer — `kind` field on the message dispatches
+# to the right handler in apps/api/src/index.ts. We register one consumer
+# per producer queue here; each one calls back into the same `queue()` export.
+[[queues.consumers]]
+queue = "webhook-delivery"
+max_batch_size = 10
+max_batch_timeout = 5
+
+[[queues.consumers]]
+queue = "email-send"
+max_batch_size = 10
+max_batch_timeout = 5
+
+[[queues.consumers]]
+queue = "kb-indexing"
+max_batch_size = 5
+max_batch_timeout = 30
+
+[[queues.consumers]]
+queue = "call-grading"
+max_batch_size = 5
+max_batch_timeout = 30
+
+[[queues.consumers]]
+queue = "usage-aggregation"
+max_batch_size = 10
+max_batch_timeout = 5
+
+[[queues.consumers]]
+queue = "digest-emails"
+max_batch_size = 10
+max_batch_timeout = 5
+
+# Vectorize index for knowledge-base embeddings (768-dim BGE).
+[[vectorize]]
+binding = "VECTORIZE"
+index_name = "kb-embeddings"
+
+# Workers AI (used for `@cf/baai/bge-base-en-v1.5`).
+[ai]
+binding = "AI"
+
+# Cron triggers — Monday 12:00 UTC weekly digest, daily 06:00 UTC deletion sweeper.
+[triggers]
+crons = ["0 * * * *", "0 6 * * *"]
+
+# ---------------------------------------------------------------------------
+# Preview environment (per-PR ephemeral).
+# ---------------------------------------------------------------------------
+[env.preview]
+name = "api-preview"
+
+[[env.preview.d1_databases]]
+binding = "DB"
+database_name = "app-staging"
+database_id = "REPLACE_WITH_STAGING_D1_ID"
+
+[[env.preview.r2_buckets]]
+binding = "RECORDINGS"
+bucket_name = "staging-recordings"
+
+[[env.preview.r2_buckets]]
+binding = "KNOWLEDGE_BASE"
+bucket_name = "staging-knowledge-base"
+
+[[env.preview.r2_buckets]]
+binding = "VOICE_SAMPLES"
+bucket_name = "staging-voice-samples"
+
+[[env.preview.r2_buckets]]
+binding = "CONSENT_RECORDINGS"
+bucket_name = "staging-consent-recordings"
+
+[[env.preview.kv_namespaces]]
+binding = "SESSIONS"
+id = "REPLACE_WITH_STAGING_KV_SESSIONS_ID"
+
+[[env.preview.kv_namespaces]]
+binding = "RATE_LIMITS"
+id = "REPLACE_WITH_STAGING_KV_RATE_LIMITS_ID"
+
+[[env.preview.kv_namespaces]]
+binding = "WEBHOOK_DEDUP"
+id = "REPLACE_WITH_STAGING_KV_WEBHOOK_DEDUP_ID"
+
+[[env.preview.kv_namespaces]]
+binding = "FEATURE_FLAGS"
+id = "REPLACE_WITH_STAGING_KV_FEATURE_FLAGS_ID"
+
+[[env.preview.queues.producers]]
+binding = "WEBHOOK_DELIVERY_QUEUE"
+queue = "webhook-delivery-staging"
+
+[[env.preview.queues.producers]]
+binding = "EMAIL_SEND_QUEUE"
+queue = "email-send-staging"
+
+[[env.preview.queues.producers]]
+binding = "KB_INDEXING_QUEUE"
+queue = "kb-indexing-staging"
+
+[[env.preview.queues.producers]]
+binding = "CALL_GRADING_QUEUE"
+queue = "call-grading-staging"
+
+[[env.preview.queues.producers]]
+binding = "USAGE_AGGREGATION_QUEUE"
+queue = "usage-aggregation-staging"
+
+[[env.preview.queues.producers]]
+binding = "DIGEST_EMAILS_QUEUE"
+queue = "digest-emails-staging"
+
+# ---------------------------------------------------------------------------
+# Staging environment.
+# ---------------------------------------------------------------------------
+[env.staging]
+name = "api-staging"
+
+[[env.staging.d1_databases]]
+binding = "DB"
+database_name = "app-staging"
+database_id = "REPLACE_WITH_STAGING_D1_ID"
+
+[[env.staging.r2_buckets]]
+binding = "RECORDINGS"
+bucket_name = "staging-recordings"
+
+[[env.staging.r2_buckets]]
+binding = "KNOWLEDGE_BASE"
+bucket_name = "staging-knowledge-base"
+
+[[env.staging.r2_buckets]]
+binding = "VOICE_SAMPLES"
+bucket_name = "staging-voice-samples"
+
+[[env.staging.r2_buckets]]
+binding = "CONSENT_RECORDINGS"
+bucket_name = "staging-consent-recordings"
+
+[[env.staging.kv_namespaces]]
+binding = "SESSIONS"
+id = "REPLACE_WITH_STAGING_KV_SESSIONS_ID"
+
+[[env.staging.kv_namespaces]]
+binding = "RATE_LIMITS"
+id = "REPLACE_WITH_STAGING_KV_RATE_LIMITS_ID"
+
+[[env.staging.kv_namespaces]]
+binding = "WEBHOOK_DEDUP"
+id = "REPLACE_WITH_STAGING_KV_WEBHOOK_DEDUP_ID"
+
+[[env.staging.kv_namespaces]]
+binding = "FEATURE_FLAGS"
+id = "REPLACE_WITH_STAGING_KV_FEATURE_FLAGS_ID"
+
+[[env.staging.queues.producers]]
+binding = "WEBHOOK_DELIVERY_QUEUE"
+queue = "webhook-delivery-staging"
+
+[[env.staging.queues.producers]]
+binding = "EMAIL_SEND_QUEUE"
+queue = "email-send-staging"
+
+[[env.staging.queues.producers]]
+binding = "KB_INDEXING_QUEUE"
+queue = "kb-indexing-staging"
+
+[[env.staging.queues.producers]]
+binding = "CALL_GRADING_QUEUE"
+queue = "call-grading-staging"
+
+[[env.staging.queues.producers]]
+binding = "USAGE_AGGREGATION_QUEUE"
+queue = "usage-aggregation-staging"
+
+[[env.staging.queues.producers]]
+binding = "DIGEST_EMAILS_QUEUE"
+queue = "digest-emails-staging"
+
+[[env.staging.queues.consumers]]
+queue = "webhook-delivery-staging"
+[[env.staging.queues.consumers]]
+queue = "email-send-staging"
+[[env.staging.queues.consumers]]
+queue = "kb-indexing-staging"
+[[env.staging.queues.consumers]]
+queue = "call-grading-staging"
+[[env.staging.queues.consumers]]
+queue = "usage-aggregation-staging"
+[[env.staging.queues.consumers]]
+queue = "digest-emails-staging"
+
+[[env.staging.vectorize]]
+binding = "VECTORIZE"
+index_name = "kb-embeddings-staging"
+
+[env.staging.ai]
+binding = "AI"
+
+[env.staging.triggers]
+crons = ["0 * * * *", "0 6 * * *"]
+
+# ---------------------------------------------------------------------------
+# Production environment.
+# ---------------------------------------------------------------------------
+[env.production]
+name = "api-production"
+
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "app-prod"
+database_id = "REPLACE_WITH_PROD_D1_ID"
+
+[[env.production.r2_buckets]]
+binding = "RECORDINGS"
+bucket_name = "prod-recordings"
+
+[[env.production.r2_buckets]]
+binding = "KNOWLEDGE_BASE"
+bucket_name = "prod-knowledge-base"
+
+[[env.production.r2_buckets]]
+binding = "VOICE_SAMPLES"
+bucket_name = "prod-voice-samples"
+
+[[env.production.r2_buckets]]
+binding = "CONSENT_RECORDINGS"
+bucket_name = "prod-consent-recordings"
+
+[[env.production.kv_namespaces]]
+binding = "SESSIONS"
+id = "REPLACE_WITH_PROD_KV_SESSIONS_ID"
+
+[[env.production.kv_namespaces]]
+binding = "RATE_LIMITS"
+id = "REPLACE_WITH_PROD_KV_RATE_LIMITS_ID"
+
+[[env.production.kv_namespaces]]
+binding = "WEBHOOK_DEDUP"
+id = "REPLACE_WITH_PROD_KV_WEBHOOK_DEDUP_ID"
+
+[[env.production.kv_namespaces]]
+binding = "FEATURE_FLAGS"
+id = "REPLACE_WITH_PROD_KV_FEATURE_FLAGS_ID"
+
+[[env.production.queues.producers]]
+binding = "WEBHOOK_DELIVERY_QUEUE"
+queue = "webhook-delivery"
+
+[[env.production.queues.producers]]
+binding = "EMAIL_SEND_QUEUE"
+queue = "email-send"
+
+[[env.production.queues.producers]]
+binding = "KB_INDEXING_QUEUE"
+queue = "kb-indexing"
+
+[[env.production.queues.producers]]
+binding = "CALL_GRADING_QUEUE"
+queue = "call-grading"
+
+[[env.production.queues.producers]]
+binding = "USAGE_AGGREGATION_QUEUE"
+queue = "usage-aggregation"
+
+[[env.production.queues.producers]]
+binding = "DIGEST_EMAILS_QUEUE"
+queue = "digest-emails"
+
+[[env.production.queues.consumers]]
+queue = "webhook-delivery"
+[[env.production.queues.consumers]]
+queue = "email-send"
+[[env.production.queues.consumers]]
+queue = "kb-indexing"
+[[env.production.queues.consumers]]
+queue = "call-grading"
+[[env.production.queues.consumers]]
+queue = "usage-aggregation"
+[[env.production.queues.consumers]]
+queue = "digest-emails"
+
+[[env.production.vectorize]]
+binding = "VECTORIZE"
+index_name = "kb-embeddings"
+
+[env.production.ai]
+binding = "AI"
+
+[env.production.triggers]
+crons = ["0 * * * *", "0 6 * * *"]
