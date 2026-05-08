@@ -2,10 +2,13 @@
   "name": "ai-receptionist",
   "version": "0.0.0",
   "private": true,
-  "packageManager": "pnpm@9.0.0",
   "engines": {
     "node": ">=20.0.0"
   },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
     "lint": "pnpm -r --if-present lint",
     "typecheck": "pnpm -r --if-present typecheck",
