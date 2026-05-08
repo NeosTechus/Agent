@@ -43,7 +43,7 @@ export default function CheckoutSuccessPage() {
     }
   }, [query.dataUpdatedAt, query.isFetched]);
 
-  const status = query.data?.data.status;
+  const status = query.data?.status;
   const active = status === "active" || status === "trialing";
   const polledOut = pollCount >= MAX_POLLS;
 

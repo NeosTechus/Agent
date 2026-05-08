@@ -33,7 +33,7 @@ export default function AuditLogsPage() {
   return (
     <Shell>
       <h1 className="mb-4 text-xl font-semibold">Audit logs</h1>
-      <div className="mb-4 grid grid-cols-3 gap-2 text-sm">
+      <div className="mb-4 grid grid-cols-1 gap-2 text-sm sm:grid-cols-2 lg:grid-cols-3">
         <input
           value={filters.organization_id}
           onChange={(e) =>
@@ -49,7 +49,8 @@ export default function AuditLogsPage() {
           className="rounded border border-slate-700 bg-slate-900 px-2 py-1"
         />
       </div>
-      <table className="w-full text-xs">
+      <div className="overflow-x-auto">
+      <table className="w-full min-w-[40rem] text-xs">
         <thead className="border-b border-slate-800 text-left uppercase text-slate-500">
           <tr>
             <th className="py-2">When</th>
@@ -77,6 +78,7 @@ export default function AuditLogsPage() {
           ))}
         </tbody>
       </table>
+      </div>
     </Shell>
   );
 }

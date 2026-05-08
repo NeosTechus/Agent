@@ -12,6 +12,8 @@ export interface AuthUser {
   email: string;
   name: string | null;
   email_verified_at: number | null;
+  /** SQLite boolean stored as 0|1. `1` means the user can access `/v1/admin/*`. */
+  is_admin: 0 | 1;
 }
 
 export interface AuthOrganization {

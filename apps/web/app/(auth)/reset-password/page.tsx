@@ -14,6 +14,7 @@ import {
 } from "@app/types/auth";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { PasswordInput } from "@/components/ui/PasswordInput";
 import { FormField } from "@/components/ui/FormField";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { confirmPasswordReset } from "@/lib/auth";
@@ -104,8 +105,7 @@ export default function ResetPasswordPage() {
           hint="At least 8 characters."
           error={form.formState.errors.password?.message}
         >
-          <Input
-            type="password"
+          <PasswordInput
             autoComplete="new-password"
             {...form.register("password")}
           />

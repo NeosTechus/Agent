@@ -16,6 +16,8 @@ export interface ElevenLabsClientOptions {
   apiKey: string;
   /** Override base URL for tests. Defaults to `https://api.elevenlabs.io/v1/`. */
   baseUrl?: string;
+  /** Override exponential-backoff base delay. Tests pass 0 to skip wall-clock waits. */
+  baseDelayMs?: number;
 }
 
 export interface CreateClonedVoiceInput {
@@ -31,6 +33,8 @@ export interface ElevenLabsVoiceMetadata {
   category: string;
   description: string | null;
   labels: Record<string, string>;
+  /** Public CDN URL of a short preview clip; null for voices ElevenLabs hasn't generated one for yet. */
+  previewUrl: string | null;
 }
 
 export class ElevenLabsError extends Error {
@@ -45,10 +49,12 @@ export class ElevenLabsError extends Error {
 export class ElevenLabsClient {
   private readonly apiKey: string;
   private readonly baseUrl: string;
+  private readonly baseDelayMs: number;
 
   constructor(opts: ElevenLabsClientOptions) {
     this.apiKey = opts.apiKey;
     this.baseUrl = (opts.baseUrl ?? "https://api.elevenlabs.io/v1/").replace(/\/?$/, "/");
+    this.baseDelayMs = opts.baseDelayMs ?? 1_000;
   }
 
   private async request<T>(
@@ -84,7 +90,7 @@ export class ElevenLabsClient {
       },
       {
         retries: 3,
-        baseDelayMs: 1_000,
+        baseDelayMs: this.baseDelayMs,
         attemptTimeoutMs: 30_000,
         shouldRetry: (err) => {
           if (err instanceof ElevenLabsError) {
@@ -99,12 +105,39 @@ export class ElevenLabsClient {
   /**
    * Return the curated 12-voice catalog. Pulled from `STOCK_VOICES` so the
    * frontend, agent service, and Vapi client agree on exactly the same set.
-   * We do NOT proxy ElevenLabs `GET /voices` here because that endpoint
-   * returns the customer's full library (including clones from other orgs)
-   * and we don't want to leak that surface into the dashboard.
    */
   async listStockVoices(): Promise<VapiVoiceListEntry[]> {
     return STOCK_VOICES;
+  }
+
+  /**
+   * Fetch the full set of premade voices from the ElevenLabs library — the
+   * shared catalog all accounts see. Filters out the account's custom clones
+   * (category !== "premade") so we never leak per-customer voices into the
+   * picker. Caller should KV-cache the result; ElevenLabs's catalog rarely
+   * changes day-to-day.
+   */
+  async listAllPremadeVoices(): Promise<ElevenLabsVoiceMetadata[]> {
+    const res = await this.request<{
+      voices: Array<{
+        voice_id: string;
+        name: string;
+        category: string;
+        description: string | null;
+        labels: Record<string, string>;
+        preview_url?: string | null;
+      }>;
+    }>("GET", "voices", null);
+    return (res.voices ?? [])
+      .filter((v) => v.category === "premade")
+      .map((v) => ({
+        voiceId: v.voice_id,
+        name: v.name,
+        category: v.category,
+        description: v.description,
+        labels: v.labels ?? {},
+        previewUrl: v.preview_url ?? null,
+      }));
   }
 
   /**
@@ -150,6 +183,7 @@ export class ElevenLabsClient {
       category: string;
       description: string | null;
       labels: Record<string, string>;
+      preview_url?: string | null;
     }>("GET", `voices/${encodeURIComponent(voiceId)}`, null);
     return {
       voiceId: res.voice_id,
@@ -157,6 +191,7 @@ export class ElevenLabsClient {
       category: res.category,
       description: res.description,
       labels: res.labels ?? {},
+      previewUrl: res.preview_url ?? null,
     };
   }
 }

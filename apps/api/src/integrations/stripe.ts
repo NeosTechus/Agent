@@ -250,7 +250,17 @@ export class StripeClient {
     if (input.promotionCodeId) {
       body["discounts[0][promotion_code]"] = input.promotionCodeId;
     }
-    if (input.metadata) body.metadata = input.metadata;
+    if (input.metadata) {
+      // Set metadata on the Checkout Session itself.
+      body.metadata = input.metadata;
+      // ALSO copy onto subscription_data.metadata so the subscription Stripe
+      // creates carries the same context. Without this, the
+      // `customer.subscription.created` webhook arrives with no
+      // `organization_id` and our reducer can't link it back to a tenant.
+      for (const [k, v] of Object.entries(input.metadata)) {
+        body[`subscription_data[metadata][${k}]`] = v;
+      }
+    }
     return this.request<StripeCheckoutSession>(
       "POST",
       "checkout/sessions",
@@ -309,28 +319,40 @@ export class StripeClient {
   // -------------------------------------------------------------------------
   // Metered usage — overage minutes (PRD 5.12.0).
   //
-  // `subscriptionItemId` identifies the metered line item attached to the
-  // overage price. Stripe sums `quantity` across the period.
+  // Uses Stripe's Billing Meter Events API (the legacy `usage_records`
+  // endpoint was deprecated in 2024 and is gone for new metered prices).
+  // Stripe sums `payload.value` across the meter window, scoped to the
+  // customer via `payload.stripe_customer_id`.
   //
-  // Cadence: aggregated reports are flushed by the usage-aggregation queue
-  // hourly, with a final reconciliation report at period close. Setting
-  // `action=increment` lets multiple reporters in the same period add up
-  // safely without a coordinator.
+  // `identifier` is the Stripe-side idempotency key on the meter event itself
+  // (separate from the HTTP-level Idempotency-Key, which we still send via
+  // `request()`); both should match for safe replay.
   // -------------------------------------------------------------------------
-  async reportMeteredUsage(
-    subscriptionItemId: string,
-    quantity: number,
-    timestampSeconds: number,
+  async reportMeterEvent(
+    eventName: string,
+    stripeCustomerId: string,
+    value: number,
     idempotencyKey: string,
-  ): Promise<{ id: string; quantity: number; timestamp: number }> {
+    timestampSeconds?: number,
+  ): Promise<{
+    identifier: string;
+    event_name: string;
+    timestamp: number;
+    payload: Record<string, string>;
+  }> {
+    const body: Record<string, unknown> = {
+      event_name: eventName,
+      identifier: idempotencyKey,
+      payload: {
+        stripe_customer_id: stripeCustomerId,
+        value: String(value),
+      },
+    };
+    if (timestampSeconds) body.timestamp = timestampSeconds;
     return this.request(
       "POST",
-      `subscription_items/${encodeURIComponent(subscriptionItemId)}/usage_records`,
-      {
-        quantity,
-        timestamp: timestampSeconds,
-        action: "increment",
-      },
+      "billing/meter_events",
+      body,
       idempotencyKey,
     );
   }

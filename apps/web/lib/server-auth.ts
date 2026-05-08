@@ -9,7 +9,14 @@
 import { cookies } from "next/headers";
 import type { Session } from "@app/types/auth";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8787";
+// Server-side fetches bypass the Next.js proxy and hit the API directly.
+// Calling :3000 (the proxy) from inside the Next.js process causes a
+// fetch-to-self loopback that can deadlock during SSR. Set
+// API_INTERNAL_URL when staging/prod has a non-default API origin.
+const API_URL =
+  process.env.API_INTERNAL_URL ??
+  process.env.API_PROXY_ORIGIN ??
+  "http://localhost:8787";
 
 export async function getServerSession(): Promise<Session | null> {
   const cookieStore = await cookies();

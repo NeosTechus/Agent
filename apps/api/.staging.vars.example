@@ -1,0 +1,103 @@
+# Staging-only overrides for apps/api/.dev.vars values.
+#
+# How this is used:
+#   - Copy this file to apps/api/.staging.vars and fill in values.
+#   - apps/api/.staging.vars is gitignored (matched by the .dev.vars.* rule).
+#   - scripts/push-secrets-staging.sh reads .dev.vars first, then this file,
+#     so any key set here OVERRIDES the .dev.vars value when pushing to
+#     `wrangler secret put --env staging`.
+#
+# What you almost certainly need to override for staging:
+#
+#   - URLs that should point at the staging domain instead of localhost.
+#   - Stripe keys/prices if staging uses a different test-mode workspace
+#     than your local dev.
+#   - VAPI / TWILIO / etc. — usually fine to share with local dev unless
+#     you've provisioned a staging-only set of resources.
+#
+# What you should NOT put here:
+#   - LOG_LEVEL, ENVIRONMENT, BILLING_*_URL, CUSTOMER_APP_URL,
+#     RESEND_FROM_EMAIL, CF_ACCESS_TEAM_DOMAIN — these are in [vars] of
+#     wrangler.toml, not as secrets. The push script skips them anyway.
+#
+# Replace <your-domain> below with your real domain (the one you've set up
+# DNS records for in Cloudflare).
+
+# --- Auth ------------------------------------------------------------------
+# Generate fresh for staging — DO NOT share with local dev.
+# openssl rand -base64 32
+JWT_SIGNING_KEY=
+BETTER_AUTH_SECRET=
+
+# --- Public URLs (override localhost from .dev.vars) -----------------------
+# These ARE pushed as secrets despite living in [vars] in some setups —
+# they're URLs that the API needs at request time. The push script does
+# NOT skip these, so set them here.
+# Note: CUSTOMER_APP_URL, BILLING_*_URL, RESEND_FROM_EMAIL, CF_ACCESS_TEAM_DOMAIN
+# are SKIPPED by the push script (they belong in [vars] of wrangler.toml or
+# are configured at the Cloudflare Pages level). They are listed below
+# only as a reminder to update them in apps/api/wrangler.toml's [vars]
+# block when you add one for staging.
+#
+# CUSTOMER_APP_URL=https://app-staging.<your-domain>
+# BILLING_SUCCESS_URL=https://app-staging.<your-domain>/checkout/success?session_id={CHECKOUT_SESSION_ID}
+# BILLING_CANCEL_URL=https://app-staging.<your-domain>/checkout/canceled
+# BILLING_PORTAL_RETURN_URL=https://app-staging.<your-domain>/dashboard/billing
+# RESEND_FROM_EMAIL=noreply@<your-verified-domain>
+# CF_ACCESS_TEAM_DOMAIN=yourorg.cloudflareaccess.com
+
+# --- Stripe (test mode for staging) ----------------------------------------
+# Override these if staging uses a different Stripe workspace than local dev.
+# STRIPE_SECRET_KEY=sk_test_
+# STRIPE_WEBHOOK_SECRET=whsec_
+# STRIPE_PRICE_STARTER_MONTHLY=price_
+# STRIPE_PRICE_STARTER_ANNUAL=price_
+# STRIPE_PRICE_GROWTH_MONTHLY=price_
+# STRIPE_PRICE_GROWTH_ANNUAL=price_
+# STRIPE_PRICE_PRO_MONTHLY=price_
+# STRIPE_PRICE_PRO_ANNUAL=price_
+# STRIPE_PRICE_LOCATION_ADDON=price_
+# STRIPE_PRICE_OVERAGE_METERED=price_
+
+# --- Vapi ------------------------------------------------------------------
+# Usually shared with local dev. Override if staging has its own assistants.
+# VAPI_API_KEY=
+# VAPI_WEBHOOK_SECRET=
+# VAPI_DEFAULT_PHONE_NUMBER_ID=
+# VAPI_DEMO_PUBLIC_KEY=
+# VAPI_DEMO_ASSISTANT_ID=
+
+# --- Twilio ----------------------------------------------------------------
+# TWILIO_ACCOUNT_SID=
+# TWILIO_AUTH_TOKEN=
+# TWILIO_WEBHOOK_SECRET=
+# TWILIO_DEFAULT_FROM_NUMBER=
+
+# --- ElevenLabs ------------------------------------------------------------
+# ELEVENLABS_API_KEY=
+
+# --- Deepgram + Groq -------------------------------------------------------
+# DEEPGRAM_API_KEY=
+# GROQ_API_KEY=
+
+# --- Resend ----------------------------------------------------------------
+# RESEND_API_KEY=
+
+# --- Google OAuth ----------------------------------------------------------
+# Add the staging callback URL to the Google Console OAuth client first.
+# GOOGLE_OAUTH_CLIENT_ID=
+# GOOGLE_OAUTH_CLIENT_SECRET=
+# GOOGLE_OAUTH_REDIRECT_URI=https://api-staging.<your-domain>/api/auth/oauth/google/callback
+
+# --- Cloudflare Turnstile --------------------------------------------------
+# Use the SAME widget for staging if your Turnstile widget allows
+# multiple hostnames; otherwise create a staging widget.
+# TURNSTILE_SECRET=
+# TURNSTILE_SITE_KEY=
+
+# --- Cloudflare Access -----------------------------------------------------
+# CF_ACCESS_AUD=
+
+# --- Sentry ----------------------------------------------------------------
+# Use a separate Sentry project for staging so events don't pollute prod metrics.
+# SENTRY_DSN=

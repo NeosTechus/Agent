@@ -49,6 +49,15 @@ async function apiPatch<T>(path: string, body: unknown): Promise<T> {
         : { code: "UNKNOWN_ERROR", message: res.statusText || "Request failed." };
     throw new ApiError(res.status, envelope);
   }
+  // Match api-client's behavior: unwrap `{ data: T }` envelope at the boundary.
+  if (
+    payload &&
+    typeof payload === "object" &&
+    "data" in payload &&
+    !("error" in payload)
+  ) {
+    return (payload as { data: T }).data;
+  }
   return payload as T;
 }
 

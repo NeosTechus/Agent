@@ -53,37 +53,39 @@ export default function CustomersPage() {
       ) : customersQuery.isError ? (
         <p className="text-red-400">{(customersQuery.error as Error).message}</p>
       ) : (
-        <table className="w-full text-sm">
-          <thead className="border-b border-slate-800 text-left text-xs uppercase text-slate-500">
-            <tr>
-              <th className="py-2">Org</th>
-              <th>Owner</th>
-              <th>Plan</th>
-              <th className="text-right">MRR</th>
-              <th className="text-right">Calls (30d)</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-900">
-            {filtered.map((r) => (
-              <tr key={r.organization_id} className="hover:bg-slate-900/50">
-                <td className="py-2">{r.organization_name}</td>
-                <td className="text-slate-400">{r.owner_email ?? "—"}</td>
-                <td>{r.plan_tier}</td>
-                <td className="text-right">${(r.mrr_cents / 100).toFixed(0)}</td>
-                <td className="text-right">{r.call_count_30d}</td>
-                <td className="text-right">
-                  <Link
-                    href={`/customers/${r.organization_id}`}
-                    className="text-indigo-400 hover:text-indigo-300"
-                  >
-                    Open
-                  </Link>
-                </td>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[44rem] text-sm">
+            <thead className="border-b border-slate-800 text-left text-xs uppercase text-slate-500">
+              <tr>
+                <th className="py-2">Org</th>
+                <th>Owner</th>
+                <th>Plan</th>
+                <th className="text-right">MRR</th>
+                <th className="text-right">Calls (30d)</th>
+                <th />
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="divide-y divide-slate-900">
+              {filtered.map((r) => (
+                <tr key={r.organization_id} className="hover:bg-slate-900/50">
+                  <td className="py-2">{r.organization_name}</td>
+                  <td className="text-slate-400">{r.owner_email ?? "—"}</td>
+                  <td>{r.plan_tier}</td>
+                  <td className="text-right">${(r.mrr_cents / 100).toFixed(0)}</td>
+                  <td className="text-right">{r.call_count_30d}</td>
+                  <td className="text-right">
+                    <Link
+                      href={`/customers/${r.organization_id}`}
+                      className="text-indigo-400 hover:text-indigo-300"
+                    >
+                      Open
+                    </Link>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </Shell>
   );

@@ -23,6 +23,7 @@ import {
   decidePromptReviewHandler,
   listPromptReviewsHandler,
 } from "./prompt-reviews";
+import { opsHealthHandler } from "./ops-handlers";
 
 export const adminRoutes = new Hono<AppEnv>()
   .use("*", adminAuthMiddleware())
@@ -41,4 +42,5 @@ export const adminRoutes = new Hono<AppEnv>()
   .get("/audit-logs", searchAuditLogsHandler)
   .post("/email/test", sendTestEmailHandler)
   .get("/prompt-reviews", listPromptReviewsHandler)
-  .post("/prompt-reviews/:id", decidePromptReviewHandler);
+  .post("/prompt-reviews/:id", decidePromptReviewHandler)
+  .get("/ops/health", opsHealthHandler);

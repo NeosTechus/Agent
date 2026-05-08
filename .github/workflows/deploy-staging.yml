@@ -5,8 +5,31 @@ on:
     branches: [main]
 
 jobs:
+  # Re-run the full CI gate (lint + typecheck + test + coverage + build)
+  # before deploying. Without this `needs:` chain, a push to `main` would
+  # deploy in parallel with CI and could ship a broken build if CI is red.
+  ci:
+    name: CI gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm test:coverage
+      - run: pnpm build
+
   deploy-api:
     name: Deploy API Worker (staging)
+    needs: ci
     runs-on: ubuntu-latest
     environment: staging
     steps:
@@ -40,6 +63,7 @@ jobs:
 
   deploy-web:
     name: Deploy web Pages (staging)
+    needs: ci
     runs-on: ubuntu-latest
     environment: staging
     steps:
@@ -72,6 +96,7 @@ jobs:
 
   deploy-admin:
     name: Deploy admin Pages (staging)
+    needs: ci
     runs-on: ubuntu-latest
     environment: staging
     steps:

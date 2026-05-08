@@ -12,6 +12,8 @@ import { retry } from "./shared/retry";
 export interface DeepgramClientOptions {
   apiKey: string;
   baseUrl?: string;
+  /** Override exponential-backoff base delay. Tests pass 0 to skip wall-clock waits. */
+  baseDelayMs?: number;
 }
 
 export interface TranscribeFromUrlInput {
@@ -42,10 +44,12 @@ export class DeepgramError extends Error {
 export class DeepgramClient {
   private readonly apiKey: string;
   private readonly baseUrl: string;
+  private readonly baseDelayMs: number;
 
   constructor(opts: DeepgramClientOptions) {
     this.apiKey = opts.apiKey;
     this.baseUrl = (opts.baseUrl ?? "https://api.deepgram.com/v1/").replace(/\/?$/, "/");
+    this.baseDelayMs = opts.baseDelayMs ?? 1_000;
   }
 
   /**
@@ -103,7 +107,7 @@ export class DeepgramClient {
       },
       {
         retries: 3,
-        baseDelayMs: 1_000,
+        baseDelayMs: this.baseDelayMs,
         attemptTimeoutMs: 60_000, // batch transcription is slower than chat
         shouldRetry: (err) => {
           if (err instanceof DeepgramError) {

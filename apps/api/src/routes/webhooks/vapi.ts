@@ -1,19 +1,30 @@
 // POST /v1/webhooks/vapi
 //
 // Inbound Vapi webhooks: call lifecycle events + end-of-call reports.
-// Authenticated by `X-Vapi-Signature` header (HMAC-SHA256 hex over raw body).
+// Authenticated by `Authorization: Bearer ${VAPI_WEBHOOK_SECRET}` — the
+// secret is the bearer-token value configured under Vapi → Org Settings →
+// Server URL → Authorization. Modern Vapi (2024+) deprecated the legacy
+// `X-Vapi-Signature` HMAC header in favor of standard auth schemes.
 
 import { Hono } from "hono";
 import type { AppEnv } from "../../types";
 import { ApiError } from "../../lib/errors";
 import { errorResponse, success } from "../../lib/responses";
 import { createLogger, type LogLevel } from "../../lib/logger";
-import { VapiClient } from "../../integrations/vapi";
 import {
   applyVapiMutation,
   reduceVapiWebhookEvent,
   type VapiWebhookEvent,
 } from "../../services/calls/logic";
+
+/** Length-safe constant-time string compare. Both inputs are short bearer
+ *  tokens, so allocating a Uint8Array per call is fine. */
+function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
 
 const WEBHOOK_DEDUP_TTL_SECONDS = 7 * 24 * 60 * 60;
 
@@ -33,16 +44,15 @@ export const vapiWebhookRoutes = new Hono<AppEnv>().post("/vapi", async (c) => {
     );
   }
 
-  // 1. Raw body before any JSON parse.
+  // 1. Raw body before any JSON parse (kept for dedup / debug logging).
   const rawBody = await c.req.text();
-  const sigHeader = c.req.header("x-vapi-signature");
 
-  // 2. Signature verification.
-  const vapi = new VapiClient({ apiKey });
-  const ok = await vapi.verifyWebhookSignature(rawBody, sigHeader, secret);
-  if (!ok) {
-    log.warn("vapi.webhook.bad_signature");
-    return errorResponse(c, new ApiError("UNAUTHENTICATED", "Invalid signature"));
+  // 2. Bearer token verification.
+  const authHeader = c.req.header("authorization") ?? "";
+  const expected = `Bearer ${secret}`;
+  if (!timingSafeEqual(authHeader, expected)) {
+    log.warn("vapi.webhook.bad_token");
+    return errorResponse(c, new ApiError("UNAUTHENTICATED", "Invalid bearer token"));
   }
 
   // 3. Parse + dedupe. Vapi events do not carry a stable top-level id, so we

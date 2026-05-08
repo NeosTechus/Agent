@@ -154,8 +154,9 @@ export default function IntegrationsPage() {
           description="Add an endpoint above to start receiving events."
         />
       ) : (
-        <Card className="overflow-hidden">
-          <table className="w-full text-sm">
+        <Card className="overflow-hidden p-0">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[44rem] text-sm">
             <thead className="bg-slate-50 text-left text-xs uppercase text-ink-muted">
               <tr>
                 <th className="px-4 py-3 font-medium">URL</th>
@@ -203,6 +204,7 @@ export default function IntegrationsPage() {
               ))}
             </tbody>
           </table>
+          </div>
         </Card>
       )}
     </div>

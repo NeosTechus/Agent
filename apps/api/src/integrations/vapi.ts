@@ -8,8 +8,9 @@
 //
 // Auth: bearer token via `Authorization: Bearer ${VAPI_API_KEY}`.
 // Wire format: JSON.
-// Webhook signature: HMAC-SHA256 hex over the raw request body, header
-//   `X-Vapi-Signature`. Verified via `verifyHmacSha256`.
+// Webhook auth: bearer token in `Authorization` header (configured under
+//   Vapi → Org Settings → Server URL → Authorization). Verified inline in
+//   the webhook route — no signature math needed.
 //
 // Retry policy mirrors Stripe client: 3 retries, 1s/2s/4s, ±25% jitter, 15s
 // per-attempt timeout, retry on 5xx + 429 only.
@@ -18,7 +19,6 @@
 // public docs). We always pass one, derived from the caller's intent.
 
 import { retry } from "./shared/retry";
-import { verifyHmacSha256 } from "./shared/signature";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -477,16 +477,4 @@ export class VapiClient {
     );
   }
 
-  // -------------------------------------------------------------------------
-  // Webhook signature verification.
-  // Vapi documents `X-Vapi-Signature` as hex HMAC-SHA256 of the raw body.
-  // -------------------------------------------------------------------------
-  async verifyWebhookSignature(
-    rawBody: string,
-    header: string | null | undefined,
-    secret: string,
-  ): Promise<boolean> {
-    if (!header) return false;
-    return verifyHmacSha256(rawBody, header.trim(), secret);
-  }
 }

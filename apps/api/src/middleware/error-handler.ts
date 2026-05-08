@@ -18,6 +18,8 @@ function statusToCode(status: number): ErrorCode {
       return "BAD_REQUEST";
     case 401:
       return "UNAUTHENTICATED";
+    case 402:
+      return "PAYMENT_REQUIRED";
     case 403:
       return "FORBIDDEN";
     case 404:

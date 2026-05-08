@@ -1,20 +1,27 @@
 // Admin authentication middleware.
 //
-// All `/v1/admin/*` routes are protected by Cloudflare Access. Cloudflare
-// Access injects a signed JWT in the `Cf-Access-Jwt-Assertion` header on
-// every request that passes the Access policy.
+// Auth check order (first match wins):
+//   1. Customer session cookie + `users.is_admin = 1` — supports the merged
+//      admin UI living inside the customer dashboard. Falls through silently
+//      on missing/invalid cookie or non-admin user so the JWT path still runs.
+//   2. Cloudflare Access JWT (`Cf-Access-Jwt-Assertion` header) — production
+//      path. JWKS cached in `RATE_LIMITS` KV with a 1-hour TTL; RS256 sig
+//      verified against the matching `kid`; `email` + `sub` extracted for
+//      audit logging.
+//   3. `X-Admin-Email` header — non-production smoke-test fallback only.
 //
-// We fetch the team's JWKS on first use (cached in `RATE_LIMITS` KV with a
-// 1-hour TTL), verify the RS256 signature against the matching `kid`, then
-// pull `email` + `sub` claims for audit logging.
-//
-// In non-production environments we accept an `X-Admin-Email` fallback so
-// the founder can smoke-test without standing up Access.
+// Audit logging behavior is unchanged: every admin action still writes to
+// `audit_logs` based on the `admin_email` / `admin_id` set here.
 
 import type { MiddlewareHandler } from "hono";
 import type { AppEnv } from "../types";
 import type { Bindings } from "../env";
 import { ApiError } from "../lib/errors";
+import {
+  readSession,
+  readSessionTokenFromCookieHeader,
+} from "../services/auth/sessions";
+import { loadSessionContext } from "../services/auth/logic";
 
 interface AccessClaims {
   email: string;
@@ -144,10 +151,70 @@ async function verifyRs256(
   return { ok: true, claims };
 }
 
+/**
+ * Best-effort lookup of an admin user via the customer session cookie.
+ * Returns null on any miss (no cookie, expired session, orphan user, or
+ * `is_admin !== 1`) so callers can fall through to the JWT path. Never
+ * throws — the JWT path is responsible for producing the 401 if no auth
+ * method succeeds.
+ *
+ * `/v1/admin/*` is in the public-route allowlist for `globalAuthMiddleware`
+ * (so cookie auth isn't required for the route); we re-do the cookie lookup
+ * here on demand to avoid changing the global auth allowlist.
+ */
+async function tryAuthByAdminSession(
+  c: Parameters<MiddlewareHandler<AppEnv>>[0],
+): Promise<{ admin_email: string; admin_id: string } | null> {
+  // Honor a session that earlier middleware may have already loaded, e.g.
+  // if a future change moves `/v1/admin/*` out of the public allowlist.
+  const preloaded = c.get("user");
+  if (preloaded && preloaded.is_admin === 1) {
+    return { admin_email: preloaded.email, admin_id: preloaded.id };
+  }
+
+  const token = readSessionTokenFromCookieHeader(c.req.header("cookie"));
+  if (!token) return null;
+
+  const sessionsKv = c.env.SESSIONS;
+  const db = c.env.DB;
+  if (!sessionsKv || !db) return null;
+
+  const session = await readSession(sessionsKv, token);
+  if (!session) return null;
+
+  const ctx = await loadSessionContext(
+    db,
+    session.user_id,
+    session.organization_id,
+  );
+  if (!ctx) return null;
+  if (ctx.user.is_admin !== 1) return null;
+
+  // Also populate `c.var.user` for any downstream consumer.
+  c.set("user", ctx.user);
+  c.set("organization", ctx.organization);
+  c.set("role", ctx.role);
+  c.set("user_id", ctx.user.id);
+  c.set("organization_id", ctx.organization.id);
+  c.set("session_expires_at", session.expires_at);
+
+  return { admin_email: ctx.user.email, admin_id: ctx.user.id };
+}
+
 export function adminAuthMiddleware(): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
-    const jwt = c.req.header("cf-access-jwt-assertion");
     const env = c.env.ENVIRONMENT ?? "production";
+
+    // 1. Customer session cookie with `is_admin = 1`. Highest priority so the
+    //    merged admin UI works in every environment, including production.
+    const sessionAdmin = await tryAuthByAdminSession(c);
+    if (sessionAdmin) {
+      c.set("admin_email", sessionAdmin.admin_email);
+      c.set("admin_id", sessionAdmin.admin_id);
+      return next();
+    }
+
+    const jwt = c.req.header("cf-access-jwt-assertion");
 
     if (!jwt) {
       const fallback = c.req.header("x-admin-email");

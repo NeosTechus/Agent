@@ -2,7 +2,11 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
+import { getSession } from "@/lib/auth";
+import { getUsage, getSubscription } from "@/lib/billing";
+import { ApiError } from "@/lib/api-client";
 
 export interface NavItem {
   href: string;
@@ -11,6 +15,7 @@ export interface NavItem {
 
 export const DASHBOARD_NAV: NavItem[] = [
   { href: "/dashboard", label: "Dashboard" },
+  { href: "/composer", label: "Composer" },
   { href: "/calls", label: "Calls" },
   { href: "/agent", label: "Agent" },
   { href: "/knowledge", label: "Knowledge Base" },
@@ -19,6 +24,34 @@ export const DASHBOARD_NAV: NavItem[] = [
   { href: "/billing", label: "Billing" },
   { href: "/settings", label: "Settings" },
 ];
+
+/** Admin sub-nav — only rendered when `session.user.is_admin === true`. */
+const ADMIN_NAV: NavItem[] = [
+  { href: "/dashboard/admin/health", label: "Health" },
+  { href: "/dashboard/admin/customers", label: "Customers" },
+  { href: "/dashboard/admin/prompt-reviews", label: "Prompt reviews" },
+  { href: "/dashboard/admin/voice-clones", label: "Voice clones" },
+  { href: "/dashboard/admin/flagged-calls", label: "Flagged calls" },
+  { href: "/dashboard/admin/promos", label: "Promo codes" },
+  { href: "/dashboard/admin/audit-logs", label: "Audit logs" },
+];
+
+/**
+ * Reads `is_admin` off the session. The flag is added by the parallel
+ * backend agent on the user object; we read defensively so the sidebar still
+ * works while the type catches up.
+ */
+function useIsAdmin(): boolean {
+  const sessionQuery = useQuery({
+    queryKey: ["session"],
+    queryFn: () => getSession(),
+    staleTime: 30_000,
+  });
+  return (
+    (sessionQuery.data?.user as unknown as { is_admin?: boolean })?.is_admin ===
+    true
+  );
+}
 
 function isActive(pathname: string | null, href: string): boolean {
   if (!pathname) return false;
@@ -29,10 +62,11 @@ function isActive(pathname: string | null, href: string): boolean {
 /** Desktop sidebar (md+). Hidden on mobile — see DashboardMobileNav. */
 export function DashboardSidebar() {
   const pathname = usePathname();
+  const isAdmin = useIsAdmin();
 
   return (
-    <aside className="hidden w-60 shrink-0 border-r border-border bg-white md:block">
-      <div className="flex h-16 items-center border-b border-border px-6">
+    <aside className="hidden w-60 shrink-0 flex-col border-r border-border bg-white md:flex">
+      <div className="flex h-16 shrink-0 items-center border-b border-border px-6">
         <Link
           href="/dashboard"
           className="flex items-center gap-2 text-base font-semibold text-ink"
@@ -44,7 +78,7 @@ export function DashboardSidebar() {
           AI Receptionist
         </Link>
       </div>
-      <nav className="flex flex-col gap-1 p-4">
+      <nav className="flex flex-1 flex-col gap-1 overflow-y-auto p-4">
         {DASHBOARD_NAV.map((item) => {
           const active = isActive(pathname, item.href);
           return (
@@ -63,18 +97,139 @@ export function DashboardSidebar() {
             </Link>
           );
         })}
+
+        {isAdmin ? (
+          <div className="mt-6">
+            <p className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-wider text-ink-subtle">
+              Admin
+            </p>
+            <div className="flex flex-col gap-1">
+              {ADMIN_NAV.map((item) => {
+                const active = isActive(pathname, item.href);
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    aria-current={active ? "page" : undefined}
+                    className={cn(
+                      "rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                      active
+                        ? "bg-primary/10 text-primary"
+                        : "text-ink-muted hover:bg-surface hover:text-ink",
+                    )}
+                  >
+                    {item.label}
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
       </nav>
+      <UsageWidget />
     </aside>
   );
+}
+
+/**
+ * Compact usage indicator pinned to the bottom of the sidebar. Fetches
+ * `/v1/billing/usage` and renders minutes-used vs minutes-included with a
+ * progress bar. Falls back gracefully on 404 (no plan yet) or other errors.
+ * Clicking the widget jumps to `/billing` for plan management.
+ */
+function UsageWidget() {
+  // Fetch in parallel; if usage endpoint 404s (no active plan), fall back
+  // to plan-tier metadata from the subscription endpoint.
+  const usageQuery = useQuery({
+    queryKey: ["sidebar", "usage"],
+    queryFn: () => getUsage(),
+    retry: 1,
+    staleTime: 60_000,
+  });
+  const subQuery = useQuery({
+    queryKey: ["sidebar", "subscription"],
+    queryFn: () => getSubscription(),
+    retry: 1,
+    staleTime: 60_000,
+  });
+
+  const usage = usageQuery.data?.usage ?? null;
+  const sub = subQuery.data ?? null;
+  const usage404 =
+    usageQuery.isError &&
+    usageQuery.error instanceof ApiError &&
+    usageQuery.error.status === 404;
+
+  // No active plan at all → render a "Choose a plan" CTA.
+  if ((usage404 || !sub?.stripe_subscription_id) && !usageQuery.isLoading) {
+    return (
+      <Link
+        href="/billing"
+        className="border-t border-border bg-surface/50 px-4 py-3 text-xs hover:bg-surface"
+      >
+        <p className="font-medium text-ink">No active plan</p>
+        <p className="mt-0.5 text-ink-muted">Choose a plan to start →</p>
+      </Link>
+    );
+  }
+
+  const minutesUsed = usage?.minutes_used ?? 0;
+  // Plan-included fallback if usage endpoint hasn't been populated yet.
+  const minutesIncluded = usage?.minutes_included ?? planIncludedMinutes(sub?.plan_tier);
+  const overage = usage?.overage_minutes ?? 0;
+  const pct =
+    minutesIncluded && minutesIncluded > 0
+      ? Math.min(100, Math.round((minutesUsed / minutesIncluded) * 100))
+      : 0;
+  const tone = pct >= 90 ? "bg-red-500" : pct >= 70 ? "bg-amber-500" : "bg-emerald-500";
+
+  return (
+    <Link
+      href="/billing"
+      className="border-t border-border bg-surface/50 px-4 py-3 text-xs hover:bg-surface"
+    >
+      <div className="flex items-center justify-between">
+        <p className="font-medium text-ink">This period</p>
+        <p className="font-mono tabular-nums text-ink-muted">
+          {minutesUsed.toLocaleString()}
+          <span className="mx-0.5">/</span>
+          {minutesIncluded ? minutesIncluded.toLocaleString() : "—"} min
+        </p>
+      </div>
+      <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-slate-200">
+        <div
+          className={cn("h-full transition-all", tone)}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      {overage > 0 ? (
+        <p className="mt-1.5 text-amber-700">
+          +{overage} overage min
+        </p>
+      ) : null}
+    </Link>
+  );
+}
+
+/** Plan-tier → included minutes lookup for fallback when usage row hasn't been computed yet. */
+function planIncludedMinutes(tier: string | null | undefined): number | null {
+  if (!tier) return null;
+  const lower = tier.toLowerCase();
+  if (lower === "starter") return 500;
+  if (lower === "growth") return 1500;
+  if (lower === "pro") return 4000;
+  return null;
 }
 
 /** Mobile horizontal scroll tab bar (below md). */
 export function DashboardMobileNav() {
   const pathname = usePathname();
+  const isAdmin = useIsAdmin();
+  const items = isAdmin ? [...DASHBOARD_NAV, ...ADMIN_NAV] : DASHBOARD_NAV;
 
   return (
     <nav className="flex gap-1 overflow-x-auto border-b border-border bg-white px-4 py-2 md:hidden">
-      {DASHBOARD_NAV.map((item) => {
+      {items.map((item) => {
         const active = isActive(pathname, item.href);
         return (
           <Link

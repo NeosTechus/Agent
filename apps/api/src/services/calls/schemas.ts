@@ -32,7 +32,10 @@ export type Call = z.infer<typeof callSchema>;
 
 export const listCallsQuerySchema = z.object({
   cursor: z.string().optional(),
-  limit: z.coerce.number().int().min(1).max(100).default(50),
+  // Dashboard "Today / Yesterday / Last 7d" summary widgets request up to
+  // 500 in a single page; per-customer call list paginates with the default
+  // 50. Cap at 500 to keep the surface bounded.
+  limit: z.coerce.number().int().min(1).max(500).default(50),
   agent_id: z.string().optional(),
   flagged: z.coerce.boolean().optional(),
   is_test: z.coerce.boolean().optional(),

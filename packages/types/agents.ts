@@ -19,7 +19,9 @@ export const voiceSchema = z.object({
   id: z.string(),
   name: z.string(),
   description: z.string().optional(),
-  sampleUrl: z.string().url().optional(),
+  // snake_case to match the rest of the public API surface; matches the
+  // duplicate definition in apps/web/lib/agents-types.ts.
+  sample_url: z.string().url().optional(),
 });
 export type Voice = z.infer<typeof voiceSchema>;
 

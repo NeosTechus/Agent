@@ -14,6 +14,14 @@ export interface Bindings {
   RECORDINGS: R2Bucket;
   KNOWLEDGE_BASE: R2Bucket;
   VOICE_SAMPLES: R2Bucket;
+  // ALLOW-LISTED BINDING — voice-cloning consent recordings.
+  // 7-year retention per PRD §5.15 + §6.4 (survives account deletion;
+  // §5.22 day-30 hard-purge cron MUST NOT touch this bucket).
+  // Allow-listed callers ONLY: `services/voices/**` and `admin/voice-clones/**`.
+  // DO NOT reference from the deletion cron, billing, or any other path.
+  // Adding a caller requires (a) a /docs/DECISIONS.md entry justifying it and
+  // (b) updating the allow-list in `eslint.config.mjs`. See the reachability
+  // test at `services/account/__tests__/cron-carve-out.test.ts`.
   CONSENT_RECORDINGS: R2Bucket;
 
   // ---------------------------------------------------------------------

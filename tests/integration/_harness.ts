@@ -83,6 +83,9 @@ export interface MemD1Tables {
   organization_invitations: Map<string, Record<string, unknown>>;
   audit_logs: Map<string, Record<string, unknown>>;
   agents: Map<string, Record<string, unknown>>;
+  agent_versions: Map<string, Record<string, unknown>>;
+  calls: Map<string, Record<string, unknown>>;
+  first_call_review_window: Map<string, Record<string, unknown>>;
 }
 
 /**
@@ -150,6 +153,9 @@ export function createMemD1(): MemD1 {
     organization_invitations: new Map(),
     audit_logs: new Map(),
     agents: new Map(),
+    agent_versions: new Map(),
+    calls: new Map(),
+    first_call_review_window: new Map(),
   };
 
   const db = {
@@ -268,6 +274,23 @@ function execFirst<T>(stmt: PreparedStmt, tables: MemD1Tables): T | null {
       o_plan: o.plan_tier,
       m_role: role,
     } as T;
+  }
+
+  // SELECT status FROM subscriptions WHERE organization_id = ? ORDER BY created_at DESC LIMIT 1
+  // Used by requireActiveSubscription() middleware. Must come before the
+  // broader plan_tier+status recognizer so the more specific projection wins.
+  if (/^SELECT status FROM subscriptions WHERE organization_id = \? ORDER BY created_at DESC LIMIT 1$/i.test(sql)) {
+    const [orgId] = stmt.args as [string];
+    let latest: Row | null = null;
+    for (const s of tables.subscriptions.values()) {
+      if (s.organization_id === orgId) {
+        if (!latest || (s.created_at as number) > (latest.created_at as number)) {
+          latest = s;
+        }
+      }
+    }
+    if (!latest) return null;
+    return { status: latest.status } as T;
   }
 
   // SELECT plan_tier, status,... FROM subscriptions
@@ -439,6 +462,73 @@ function execFirst<T>(stmt: PreparedStmt, tables: MemD1Tables): T | null {
     return null;
   }
 
+  // ===== Agents (single by id+org) =====
+  if (/^SELECT id, organization_id, business_id, name, type, system_prompt, first_message, voice_id, capabilities_json, vapi_assistant_id, status, version, created_at, updated_at FROM agents WHERE id = \? AND organization_id = \? AND deleted_at IS NULL$/i.test(sql)) {
+    const [agentId, orgId] = stmt.args as [string, string];
+    const a = tables.agents.get(agentId);
+    if (!a || a.organization_id !== orgId || a.deleted_at) return null;
+    return { ...a } as T;
+  }
+
+  // ===== Agent versions: latest draft / latest published / by id =====
+  if (/^SELECT id FROM agent_versions WHERE agent_id = \? AND published_at IS NULL ORDER BY version DESC LIMIT 1$/i.test(sql)) {
+    const [agentId] = stmt.args as [string];
+    const matches: Row[] = [];
+    for (const v of tables.agent_versions.values()) {
+      if (v.agent_id === agentId && v.published_at == null) matches.push(v);
+    }
+    matches.sort((a, b) => (b.version as number) - (a.version as number));
+    return (matches[0] ? { id: matches[0].id } : null) as T;
+  }
+  if (/^SELECT id FROM agent_versions WHERE agent_id = \? AND published_at IS NOT NULL ORDER BY version DESC LIMIT 1$/i.test(sql)) {
+    const [agentId] = stmt.args as [string];
+    const matches: Row[] = [];
+    for (const v of tables.agent_versions.values()) {
+      if (v.agent_id === agentId && v.published_at != null) matches.push(v);
+    }
+    matches.sort((a, b) => (b.version as number) - (a.version as number));
+    return (matches[0] ? { id: matches[0].id } : null) as T;
+  }
+  if (/^SELECT id, agent_id, system_prompt, first_message, voice_id, capabilities_json, version, published_at, published_by_user_id, created_at FROM agent_versions WHERE id = \? AND agent_id = \?$/i.test(sql)) {
+    const [versionId, agentId] = stmt.args as [string, string];
+    const v = tables.agent_versions.get(versionId);
+    if (!v || v.agent_id !== agentId) return null;
+    return { ...v } as T;
+  }
+  if (/^SELECT system_prompt FROM agent_versions WHERE agent_id = \? AND review_state = 'published' AND published_at IS NOT NULL ORDER BY version DESC LIMIT 1$/i.test(sql)) {
+    const [agentId] = stmt.args as [string];
+    const matches: Row[] = [];
+    for (const v of tables.agent_versions.values()) {
+      if (v.agent_id === agentId && v.review_state === "published" && v.published_at != null) {
+        matches.push(v);
+      }
+    }
+    matches.sort((a, b) => (b.version as number) - (a.version as number));
+    return (matches[0] ? { system_prompt: matches[0].system_prompt } : null) as T;
+  }
+
+  // ===== Calls webhook upsert =====
+  // SELECT id, business_id, organization_id FROM agents WHERE vapi_assistant_id = ? AND deleted_at IS NULL LIMIT 1
+  if (/^SELECT id, business_id, organization_id FROM agents WHERE vapi_assistant_id = \? AND deleted_at IS NULL LIMIT 1$/i.test(sql)) {
+    const [vapiAssistantId] = stmt.args as [string];
+    for (const a of tables.agents.values()) {
+      if (a.vapi_assistant_id === vapiAssistantId && !a.deleted_at) {
+        return {
+          id: a.id,
+          business_id: a.business_id ?? null,
+          organization_id: a.organization_id,
+        } as T;
+      }
+    }
+    return null;
+  }
+  // SELECT organization_id, calls_remaining, expires_at FROM first_call_review_window WHERE organization_id = ?
+  if (/^SELECT organization_id, calls_remaining, expires_at FROM first_call_review_window WHERE organization_id = \?$/i.test(sql)) {
+    const [orgId] = stmt.args as [string];
+    const w = tables.first_call_review_window.get(orgId);
+    return (w ? { ...w } : null) as T;
+  }
+
   throw new Error(`TODO(test-infra): unrecognized SELECT: ${sql}`);
 }
 
@@ -531,6 +621,26 @@ function execAll<T>(stmt: PreparedStmt, tables: MemD1Tables): T[] {
         out.push({ id: o.id });
       }
     }
+    return out as T[];
+  }
+
+  // ===== Agents list =====
+  if (/^SELECT id, organization_id, business_id, name, type, system_prompt, first_message, voice_id, capabilities_json, vapi_assistant_id, status, version, created_at, updated_at FROM agents WHERE organization_id = \? AND deleted_at IS NULL ORDER BY created_at DESC$/i.test(sql)) {
+    const [orgId] = stmt.args as [string];
+    const out: Row[] = [];
+    for (const a of tables.agents.values()) {
+      if (a.organization_id === orgId && !a.deleted_at) out.push({ ...a });
+    }
+    out.sort((a, b) => (b.created_at as number) - (a.created_at as number));
+    return out as T[];
+  }
+  if (/^SELECT id, agent_id, system_prompt, first_message, voice_id, capabilities_json, version, published_at, published_by_user_id, created_at FROM agent_versions WHERE agent_id = \? ORDER BY version DESC$/i.test(sql)) {
+    const [agentId] = stmt.args as [string];
+    const out: Row[] = [];
+    for (const v of tables.agent_versions.values()) {
+      if (v.agent_id === agentId) out.push({ ...v });
+    }
+    out.sort((a, b) => (b.version as number) - (a.version as number));
     return out as T[];
   }
 
@@ -983,6 +1093,186 @@ function execRun(stmt: PreparedStmt, tables: MemD1Tables): { success: true } {
       b.forwarding_probe_call_id = callId;
       b.forwarding_probe_started_at = startedAt;
       b.updated_at = updatedAt;
+    }
+    return { success: true };
+  }
+
+  // ===== Agents =====
+  if (/^INSERT INTO agents \(\s*id, organization_id, business_id, name, type, system_prompt, first_message, voice_id, capabilities_json, vapi_assistant_id, status, version, created_at, updated_at\s*\)/i.test(sql)) {
+    const [
+      id, orgId, businessId, name, type, systemPrompt, firstMessage,
+      voiceId, capabilitiesJson, vapiAssistantId, status, version, createdAt, updatedAt,
+    ] = stmt.args as [
+      string, string, string | null, string, string, string, string,
+      string, string, string | null, string, number, number, number,
+    ];
+    tables.agents.set(id, {
+      id, organization_id: orgId, business_id: businessId, name, type,
+      system_prompt: systemPrompt, first_message: firstMessage, voice_id: voiceId,
+      capabilities_json: capabilitiesJson, vapi_assistant_id: vapiAssistantId,
+      status, version, deleted_at: null, created_at: createdAt, updated_at: updatedAt,
+    });
+    return { success: true };
+  }
+  if (/^UPDATE agents SET name = \?, system_prompt = \?, first_message = \?, voice_id = \?, capabilities_json = \?, updated_at = \?, status = 'draft' WHERE id = \? AND organization_id = \?$/i.test(sql)) {
+    const [name, systemPrompt, firstMessage, voiceId, capabilitiesJson, updatedAt, id, orgId] =
+      stmt.args as [string, string, string, string, string, number, string, string];
+    const a = tables.agents.get(id);
+    if (a && a.organization_id === orgId) {
+      a.name = name;
+      a.system_prompt = systemPrompt;
+      a.first_message = firstMessage;
+      a.voice_id = voiceId;
+      a.capabilities_json = capabilitiesJson;
+      a.status = "draft";
+      a.updated_at = updatedAt;
+    }
+    return { success: true };
+  }
+  if (/^UPDATE agents SET system_prompt = \?, first_message = \?, voice_id = \?, capabilities_json = \?, version = \?, status = 'published', updated_at = \? WHERE id = \? AND organization_id = \?$/i.test(sql)) {
+    const [systemPrompt, firstMessage, voiceId, capabilitiesJson, version, updatedAt, id, orgId] =
+      stmt.args as [string, string, string, string, number, number, string, string];
+    const a = tables.agents.get(id);
+    if (a && a.organization_id === orgId) {
+      a.system_prompt = systemPrompt;
+      a.first_message = firstMessage;
+      a.voice_id = voiceId;
+      a.capabilities_json = capabilitiesJson;
+      a.version = version;
+      a.status = "published";
+      a.updated_at = updatedAt;
+    }
+    return { success: true };
+  }
+  if (/^UPDATE agents SET vapi_assistant_id = \?, updated_at = \? WHERE id = \?$/i.test(sql)) {
+    const [vapiAssistantId, updatedAt, id] = stmt.args as [string, number, string];
+    const a = tables.agents.get(id);
+    if (a) {
+      a.vapi_assistant_id = vapiAssistantId;
+      a.updated_at = updatedAt;
+    }
+    return { success: true };
+  }
+  if (/^UPDATE agents SET status = 'published', version = \?, updated_at = \? WHERE id = \?$/i.test(sql)) {
+    const [version, updatedAt, id] = stmt.args as [number, number, string];
+    const a = tables.agents.get(id);
+    if (a) {
+      a.status = "published";
+      a.version = version;
+      a.updated_at = updatedAt;
+    }
+    return { success: true };
+  }
+  if (/^INSERT INTO agent_versions \(/i.test(sql)) {
+    // Two shapes: pending_admin_review (no published_at) and published.
+    // First 6 args are common: id, agent_id, system_prompt, first_message, voice_id, capabilities_json, version, ...
+    const args = stmt.args as unknown[];
+    const [id, agentId, systemPrompt, firstMessage, voiceId, capabilitiesJson, version] = args as [
+      string, string, string, string, string, string, number,
+    ];
+    let publishedAt: number | null = null;
+    let publishedByUserId: string | null = null;
+    let reviewState = "draft";
+    let reviewReason: string | null = null;
+    let createdAt = Date.now();
+    if (/published_at, published_by_user_id, review_state, created_at\s*\)/i.test(sql)) {
+      // ...VALUES (?,?,?,?,?,?,?, ?, ?, 'published', ?)
+      publishedAt = args[7] as number;
+      publishedByUserId = args[8] as string;
+      reviewState = "published";
+      createdAt = args[9] as number;
+    } else if (/published_by_user_id, review_state, review_reason, created_at\s*\)/i.test(sql)) {
+      // pending_admin_review: VALUES (?,?,?,?,?,?,?, NULL, ?, 'pending_admin_review', ?, ?)
+      publishedByUserId = args[7] as string;
+      reviewState = "pending_admin_review";
+      reviewReason = args[8] as string;
+      createdAt = args[9] as number;
+    }
+    tables.agent_versions.set(id, {
+      id, agent_id: agentId, system_prompt: systemPrompt, first_message: firstMessage,
+      voice_id: voiceId, capabilities_json: capabilitiesJson, version,
+      published_at: publishedAt, published_by_user_id: publishedByUserId,
+      review_state: reviewState, review_reason: reviewReason, created_at: createdAt,
+    });
+    return { success: true };
+  }
+
+  // ===== Calls (upsert from Vapi webhook) =====
+  if (/^INSERT INTO calls \(\s*id, organization_id, business_id, agent_id, direction, phone_number,/i.test(sql)) {
+    const [
+      id, orgId, businessId, agentId, direction, phoneNumber,
+      durationSeconds, costCents, transcript, recordingUrl, outcome,
+      isTest, startedAt, updatedAt,
+    ] = stmt.args as [
+      string, string, string, string, string, string | null,
+      number | null, number | null, string | null, string | null, string | null,
+      number, number, number,
+    ];
+    const existing = tables.calls.get(id);
+    if (existing) {
+      // ON CONFLICT DO UPDATE — merge per the SQL rules (MAX for numeric,
+      // COALESCE existing-first for text).
+      existing.duration_seconds = Math.max(
+        (existing.duration_seconds as number) ?? 0,
+        durationSeconds ?? 0,
+      );
+      existing.cost_cents = Math.max(
+        (existing.cost_cents as number) ?? 0,
+        costCents ?? 0,
+      );
+      existing.transcript = existing.transcript ?? transcript;
+      existing.recording_r2_url = existing.recording_r2_url ?? recordingUrl;
+      existing.outcome = existing.outcome ?? outcome;
+      existing.phone_number = existing.phone_number ?? phoneNumber;
+      existing.updated_at = updatedAt;
+    } else {
+      tables.calls.set(id, {
+        id,
+        organization_id: orgId,
+        business_id: businessId,
+        agent_id: agentId,
+        direction,
+        phone_number: phoneNumber,
+        duration_seconds: durationSeconds,
+        cost_cents: costCents,
+        transcript,
+        recording_r2_url: recordingUrl,
+        outcome,
+        flagged: 0,
+        quality_score: null,
+        is_test: isTest,
+        created_at: startedAt,
+        updated_at: updatedAt,
+      });
+    }
+    return { success: true };
+  }
+  if (/^INSERT OR IGNORE INTO first_call_review_window/i.test(sql)) {
+    const [orgId, callsRemaining, expiresAt, createdAt] = stmt.args as [
+      string, number, number, number,
+    ];
+    if (!tables.first_call_review_window.has(orgId)) {
+      tables.first_call_review_window.set(orgId, {
+        organization_id: orgId,
+        calls_remaining: callsRemaining,
+        expires_at: expiresAt,
+        created_at: createdAt,
+      });
+    }
+    return { success: true };
+  }
+  if (/^UPDATE first_call_review_window SET calls_remaining = calls_remaining - 1 WHERE organization_id = \?$/i.test(sql)) {
+    const [orgId] = stmt.args as [string];
+    const w = tables.first_call_review_window.get(orgId);
+    if (w) w.calls_remaining = (w.calls_remaining as number) - 1;
+    return { success: true };
+  }
+  if (/^UPDATE calls SET flagged = 1, updated_at = \? WHERE id = \?$/i.test(sql)) {
+    const [updatedAt, id] = stmt.args as [number, string];
+    const c = tables.calls.get(id);
+    if (c) {
+      c.flagged = 1;
+      c.updated_at = updatedAt;
     }
     return { success: true };
   }

@@ -1,6 +1,7 @@
 import { sqliteTable, text, integer, index } from 'drizzle-orm/sqlite-core';
 import { timestamps, softDelete } from './_shared';
 import { businesses } from './businesses';
+import { organizations } from './organizations';
 import { voices } from './voice';
 import { users } from './users';
 
@@ -11,13 +12,18 @@ export const agents = sqliteTable(
     businessId: text('business_id')
       .notNull()
       .references(() => businesses.id),
+    /** Denormalized from businesses for tenant-scoped queries — see migration 0007. */
+    organizationId: text('organization_id').references(() => organizations.id),
     name: text('name').notNull(),
     /** inbound | outbound */
     type: text('type', { enum: ['inbound', 'outbound'] }).notNull().default('inbound'),
     systemPrompt: text('system_prompt').notNull(),
     firstMessage: text('first_message').notNull(),
-    voiceId: text('voice_id').references(() => voices.id),
+    /** External voice id (ElevenLabs / Vapi / local clone). NOT an FK — see migration 0009. */
+    voiceId: text('voice_id'),
     vapiAssistantId: text('vapi_assistant_id'),
+    /** JSON-encoded capability toggles (PRD §5.4). Default `{}` = none on. */
+    capabilitiesJson: text('capabilities_json').notNull().default('{}'),
     /** draft | active | paused | archived */
     status: text('status', { enum: ['draft', 'active', 'paused', 'archived'] })
       .notNull()
@@ -28,6 +34,7 @@ export const agents = sqliteTable(
   },
   (t) => ({
     businessIdx: index('idx_agents_business_id').on(t.businessId),
+    organizationIdx: index('idx_agents_organization_id').on(t.organizationId),
     voiceIdx: index('idx_agents_voice_id').on(t.voiceId),
     vapiIdx: index('idx_agents_vapi_assistant_id').on(t.vapiAssistantId),
   }),
@@ -43,7 +50,10 @@ export const agentVersions = sqliteTable(
     version: integer('version').notNull(),
     systemPrompt: text('system_prompt').notNull(),
     firstMessage: text('first_message').notNull(),
-    voiceId: text('voice_id').references(() => voices.id),
+    /** External voice id (ElevenLabs / Vapi / local clone). NOT an FK — see migration 0011. */
+    voiceId: text('voice_id'),
+    /** JSON-encoded capability toggles snapshotted at publish time. */
+    capabilitiesJson: text('capabilities_json').notNull().default('{}'),
     publishedAt: integer('published_at').notNull(),
     publishedByUserId: text('published_by_user_id')
       .notNull()

@@ -52,23 +52,19 @@ export interface SubscriptionView {
   stripe_subscription_id: string | null;
 }
 
-interface ApiEnvelope<T> {
-  data: T;
-}
+// Note: api-client unwraps the `{ data: T }` envelope at the boundary, so
+// these functions return `T` directly.
 
 export function createCheckout(
   body: CreateCheckoutRequest,
-): Promise<ApiEnvelope<CreateCheckoutResponse>> {
-  return apiPost<ApiEnvelope<CreateCheckoutResponse>>(
-    "/v1/billing/checkout",
-    body,
-  );
+): Promise<CreateCheckoutResponse> {
+  return apiPost<CreateCheckoutResponse>("/v1/billing/checkout", body);
 }
 
 export function createPortalSession(
   returnUrl?: string,
-): Promise<ApiEnvelope<CreatePortalResponse>> {
-  return apiPost<ApiEnvelope<CreatePortalResponse>>(
+): Promise<CreatePortalResponse> {
+  return apiPost<CreatePortalResponse>(
     "/v1/billing/portal",
     returnUrl ? { return_url: returnUrl } : {},
   );
@@ -76,15 +72,15 @@ export function createPortalSession(
 
 export function cancelSubscription(
   body: CancelSubscriptionRequest = {},
-): Promise<ApiEnvelope<CancelSubscriptionResponse>> {
-  return apiPost<ApiEnvelope<CancelSubscriptionResponse>>(
+): Promise<CancelSubscriptionResponse> {
+  return apiPost<CancelSubscriptionResponse>(
     "/v1/billing/cancel",
     { at_period_end: body.at_period_end ?? true },
   );
 }
 
-export function getSubscription(): Promise<ApiEnvelope<SubscriptionView>> {
-  return apiGet<ApiEnvelope<SubscriptionView>>("/v1/billing/subscription");
+export function getSubscription(): Promise<SubscriptionView> {
+  return apiGet<SubscriptionView>("/v1/billing/subscription");
 }
 
 /**
@@ -98,6 +94,6 @@ export interface UsageView {
   overage_minutes: number;
 }
 
-export function getUsage(): Promise<ApiEnvelope<{ usage: UsageView | null }>> {
-  return apiGet<ApiEnvelope<{ usage: UsageView | null }>>("/v1/billing/usage");
+export function getUsage(): Promise<{ usage: UsageView | null }> {
+  return apiGet<{ usage: UsageView | null }>("/v1/billing/usage");
 }

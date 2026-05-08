@@ -23,7 +23,7 @@ export default defineConfig({
   test: {
     environment: 'node',
     globals: false,
-    setupFiles: [path.resolve(__dirname, './setup.ts')],
+    setupFiles: ['./tests/setup.ts'],
     include: [
       'tests/integration/**/*.test.ts',
       'apps/**/*.test.ts',
@@ -48,10 +48,13 @@ export default defineConfig({
         '**/types.ts',
         '**/*.d.ts',
       ],
-      // Coverage thresholds disabled until the harness covers more services
-      // than auth + billing — current numbers would fail the 70%/100% gates
-      // even though all hand-written tests pass. Re-enable post-launch.
-      thresholds: undefined,
+      thresholds: {
+        // backend ≥70% re-enabled after Day 6 (currently 70.6%)
+        'apps/api/src/**': { lines: 70 },
+        // Frontend threshold intentionally absent — waived for V1 launch.
+        // See DECISIONS.md "Frontend ≥50% coverage gate waived for V1 launch".
+        // Re-enable when V1.1 sprint 1 closes.
+      },
     },
   },
   resolve: {

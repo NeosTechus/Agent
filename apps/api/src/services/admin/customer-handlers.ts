@@ -9,8 +9,6 @@ import { ApiError } from "../../lib/errors";
 import { success } from "../../lib/responses";
 import { z } from "zod";
 import { logAudit } from "./logic";
-import { VapiClient } from "../../integrations/vapi";
-import { buildFinalSystemPrompt } from "../../lib/safety-prompt";
 
 function requireAdmin(c: AppContext): { admin_id: string; admin_email: string } {
   const id = c.get("admin_id");

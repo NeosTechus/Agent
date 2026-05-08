@@ -134,9 +134,67 @@ export const listVersionsHandler = async (c: AppContext) => {
   return c.json(success({ versions }));
 };
 
+/**
+ * Returns every premade voice in the ElevenLabs library — typically 30+
+ * curated voices. The result is cached in KV for 24h since the catalog rarely
+ * changes; first call after a cache miss does ~1 round trip to ElevenLabs.
+ *
+ * Falls back to the bundled 12-voice STOCK_VOICES list if ElevenLabs is
+ * unconfigured (missing API key) or returns an error — the picker still
+ * renders, the user can still select something, but they won't see the
+ * full library until ElevenLabs is reachable.
+ */
+const VOICES_CACHE_KEY = "voices:premade:v1";
+const VOICES_CACHE_TTL_SECONDS = 24 * 60 * 60;
+
 export const listVoicesHandler = async (c: AppContext) => {
   // TODO(integrations): merge admin-approved cloned voices for this org.
-  return c.json(success({ voices: listStockVoices() }));
+  const apiKey = c.env.ELEVENLABS_API_KEY;
+  if (!apiKey) {
+    return c.json(success({ voices: listStockVoices() }));
+  }
+
+  // Try cache first.
+  const kv = c.env.FEATURE_FLAGS;
+  if (kv) {
+    const cached = await kv.get(VOICES_CACHE_KEY, "json").catch(() => null);
+    if (cached && Array.isArray(cached)) {
+      return c.json(success({ voices: cached }));
+    }
+  }
+
+  // Cache miss — fetch from ElevenLabs.
+  try {
+    const { ElevenLabsClient } = await import("../../integrations/elevenlabs");
+    const client = new ElevenLabsClient({ apiKey });
+    const all = await client.listAllPremadeVoices();
+    const voices = all
+      .map((v) => ({
+        id: v.voiceId,
+        name: v.name,
+        description: v.description ?? "",
+        sample_url: v.previewUrl ?? undefined,
+      }))
+      // Stable sort: voices that have preview audio first, then alphabetical.
+      .sort((a, b) => {
+        if (!!a.sample_url !== !!b.sample_url) return a.sample_url ? -1 : 1;
+        return a.name.localeCompare(b.name);
+      });
+    if (kv) {
+      // Fire-and-forget cache write.
+      c.executionCtx.waitUntil(
+        kv.put(VOICES_CACHE_KEY, JSON.stringify(voices), {
+          expirationTtl: VOICES_CACHE_TTL_SECONDS,
+        }),
+      );
+    }
+    return c.json(success({ voices }));
+  } catch (err) {
+    reqLogger(c).warn("voices.elevenlabs_failed", {
+      error: (err as Error).message,
+    });
+    return c.json(success({ voices: listStockVoices() }));
+  }
 };
 
 export const placeTestCallHandler = async (c: AppContext) => {

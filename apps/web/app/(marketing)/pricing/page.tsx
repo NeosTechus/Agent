@@ -4,9 +4,11 @@ import * as React from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ChevronDown } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { BillingPeriodToggle } from "@/components/billing/BillingPeriodToggle";
 import { PlanCard } from "@/components/billing/PlanCard";
+import { getSession } from "@/lib/auth";
 import {
   MULTI_LOCATION_PRICE_PER_MONTH,
   OVERAGE_RATE_PER_MINUTE,
@@ -58,14 +60,24 @@ export default function PricingPage() {
     [router, searchParams],
   );
 
+  // Auth-aware routing: logged-in users skip /signup and go straight to
+  // /checkout; unauth users go to /signup which chains to /checkout after.
+  const sessionQuery = useQuery({
+    queryKey: ["pricing", "session"],
+    queryFn: () => getSession(),
+    staleTime: 30_000,
+  });
+  const isAuthenticated = !!sessionQuery.data;
+
   const handleSelect = React.useCallback(
     (plan: PlanDefinition) => {
       const params = new URLSearchParams();
       params.set("plan", plan.id);
       params.set("period", period);
-      router.push(`/signup?${params.toString()}`);
+      const dest = isAuthenticated ? "/checkout" : "/signup";
+      router.push(`${dest}?${params.toString()}`);
     },
-    [period, router],
+    [period, router, isAuthenticated],
   );
 
   return (

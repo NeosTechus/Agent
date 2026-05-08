@@ -11,6 +11,7 @@ import { Loader2 } from "lucide-react";
 import { loginSchema, type LoginInput } from "@app/types/auth";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { PasswordInput } from "@/components/ui/PasswordInput";
 import { FormField } from "@/components/ui/FormField";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { OAuthButtons, AuthDivider } from "@/components/auth/OAuthButtons";
@@ -89,8 +90,7 @@ export default function LoginPage() {
           label="Password"
           error={form.formState.errors.password?.message}
         >
-          <Input
-            type="password"
+          <PasswordInput
             autoComplete="current-password"
             {...form.register("password")}
           />

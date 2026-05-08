@@ -3,6 +3,7 @@ export type { ButtonProps } from "./Button";
 export { Card, CardHeader, CardTitle, CardDescription } from "./Card";
 export { Input } from "./Input";
 export type { InputProps } from "./Input";
+export { PasswordInput } from "./PasswordInput";
 export { Spinner } from "./Spinner";
 export type { SpinnerProps } from "./Spinner";
 export { EmptyState } from "./EmptyState";

@@ -90,6 +90,17 @@ async function request<T>(
     throw new ApiError(res.status, envelope);
   }
 
+  // Backend wraps every successful body as `{ data: <payload> }` (PRD 7.6.2).
+  // Unwrap once here so consumers can treat the response as the payload itself
+  // — without this, every callsite would have to remember `result.data.*`.
+  if (
+    payload &&
+    typeof payload === "object" &&
+    "data" in payload &&
+    !("error" in payload)
+  ) {
+    return (payload as { data: T }).data;
+  }
   return payload as T;
 }
 

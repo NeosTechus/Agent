@@ -76,7 +76,7 @@ export default function BillingPage() {
     );
   }
 
-  const sub = query.data?.data;
+  const sub = query.data;
   if (!sub || !sub.stripe_subscription_id) {
     return (
       <div className="space-y-8">
@@ -106,16 +106,94 @@ function BillingHeader() {
 }
 
 function NoSubscriptionState() {
+  const [period, setPeriod] = React.useState<"monthly" | "annual">("monthly");
   return (
-    <EmptyState
-      title="No active subscription"
-      description="Pick a plan to activate your AI receptionist and start taking calls."
-      action={
-        <Link href="/pricing">
-          <Button>Choose a plan</Button>
-        </Link>
-      }
-    />
+    <div className="space-y-6">
+      <div className="rounded-lg border border-border bg-white p-6">
+        <h2 className="text-lg font-semibold text-ink">No active subscription</h2>
+        <p className="mt-1 text-sm text-ink-muted">
+          Pick a plan to activate your AI receptionist and start taking calls.
+        </p>
+      </div>
+
+      <div className="flex items-center justify-center gap-2 text-sm">
+        <button
+          type="button"
+          onClick={() => setPeriod("monthly")}
+          className={
+            period === "monthly"
+              ? "rounded-full bg-primary px-4 py-1.5 font-medium text-white"
+              : "rounded-full px-4 py-1.5 text-ink-muted hover:text-ink"
+          }
+        >
+          Monthly
+        </button>
+        <button
+          type="button"
+          onClick={() => setPeriod("annual")}
+          className={
+            period === "annual"
+              ? "rounded-full bg-primary px-4 py-1.5 font-medium text-white"
+              : "rounded-full px-4 py-1.5 text-ink-muted hover:text-ink"
+          }
+        >
+          Annual <span className="text-xs">· save 17%</span>
+        </button>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        {PLANS.map((p) => {
+          const monthly = period === "annual" ? p.annualMonthlyPrice : p.monthlyPrice;
+          const href = `/checkout?plan=${p.id}&period=${period}`;
+          return (
+            <div
+              key={p.id}
+              className={
+                p.highlighted
+                  ? "relative rounded-lg border-2 border-primary bg-white p-6 shadow-sm"
+                  : "relative rounded-lg border border-border bg-white p-6 shadow-sm"
+              }
+            >
+              {p.highlighted ? (
+                <span className="absolute -top-3 left-6 rounded-full bg-primary px-3 py-0.5 text-xs font-medium text-white">
+                  {p.highlightLabel ?? "Most popular"}
+                </span>
+              ) : null}
+              <h3 className="text-base font-semibold text-ink">{p.name}</h3>
+              <p className="mt-1 text-sm text-ink-muted">{p.tagline}</p>
+              <p className="mt-4">
+                <span className="text-3xl font-semibold text-ink">
+                  {formatUsd(monthly)}
+                </span>
+                <span className="text-sm text-ink-muted">/mo</span>
+              </p>
+              <p className="mt-1 text-xs text-ink-muted">
+                Billed {period === "annual" ? "annually" : "monthly"}
+              </p>
+              <ul className="mt-5 space-y-2 text-sm text-ink">
+                {p.features.slice(0, 3).map((f) => (
+                  <li key={f} className="flex items-start gap-2">
+                    <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
+                    {f}
+                  </li>
+                ))}
+              </ul>
+              <Link href={href} className="mt-6 block">
+                <Button className="w-full" variant={p.highlighted ? "primary" : "secondary"}>
+                  Choose {p.name}
+                </Button>
+              </Link>
+            </div>
+          );
+        })}
+      </div>
+
+      <p className="text-center text-xs text-ink-muted">
+        All plans include a {/* eslint-disable-next-line react/no-unescaped-entities */}
+        $0.50/min overage rate beyond your included minutes. Multi-location
+        add-on $99/mo per location.
+      </p>
+    </div>
   );
 }
 
@@ -127,7 +205,7 @@ function SubscriptionPanel({ sub }: { sub: SubscriptionView }) {
   const portalMutation = useMutation({
     mutationFn: () => createPortalSession(),
     onSuccess: (res) => {
-      window.location.href = res.data.portal_url;
+      window.location.href = res.portal_url;
     },
   });
 

@@ -363,3 +363,223 @@ Architectural and tooling decisions for the AI Receptionist platform. Append-onl
 
 ### Concierge runbook
 - **`docs/CONCIERGE_RUNBOOK.md`** covers Day 0 through Day 30 for the first-customer model. Day 0 = welcome email + scheduled setup session. Day 0–1 = founder runs the wizard via impersonation. Days 2–7 = daily personal text. Days 8–30 = weekly forward-of-digest + week-2 video call. Day 30 = graduation gate with 5 specific criteria.
+
+
+---
+
+## 2026-04-30 — Day 1 (Row 10): R2 namespace map + external-resource teardown audit
+
+### Context
+Day 1 of V1_BUILD_PLAN.md. Pre-flight audit before wiring `runScheduledDeletions` (services/account/logic.ts:131) to actually purge external resources on day-30 deletion per PRD §5.22. Voice-cloning consent recordings are excluded from purge per §5.15 + §6.4 (7-year retention regardless of account status).
+
+### R2 namespace map (canonical)
+R2 storage is split across **four separately-bound buckets**, not one bucket with prefixes (apps/api/src/env.ts:14-17, wrangler.toml lines 27-31, 140-144, 207-211, 297-301). This makes the consent carve-out a clean bucket-level rule rather than a prefix filter — much harder to accidentally breach.
+
+| Binding | Purpose | Day-30 deletion treatment |
+|---|---|---|
+| `RECORDINGS` | Call recordings uploaded by `queues/recording-upload.ts:41` and read by `services/calls/logic.ts:216`. Key = derived from call ID. | **PURGE** |
+| `KNOWLEDGE_BASE` | KB docs uploaded by `services/knowledge_base/logic.ts:103`, deleted on doc removal at `:173`. | **PURGE** |
+| `VOICE_SAMPLES` | Bound but no current writes. Per `elevenlabs.ts:6` comment, intended for admin-uploaded cloning training audio (NOT the same as consent recordings — those go to `CONSENT_RECORDINGS`). | **PURGE** (corrected by founder 2026-04-30 — see correction note below). |
+| `CONSENT_RECORDINGS` | Bound but no current writes. Reserved for §5.4 voice-cloning consent capture. | **PRESERVE** per §5.15 + §6.4. |
+
+### External-resource ID storage (canonical)
+Needed by Day 2 to look up what to tear down per org being purged.
+
+| Resource | DB column | Notes |
+|---|---|---|
+| Vapi assistant | `agents.vapi_assistant_id` (migration 0000_init.sql:115) | Multiple agents per org possible (versions); iterate all rows where `organization_id = ?`. |
+| Vapi phone number | `businesses.vapi_phone_number_id` (migration 0003_business_vapi_phone_id.sql:1) | One per business. Already used by `phone_numbers/logic.ts:146` via `vapi.releasePhoneNumber`. |
+| ElevenLabs voice | `voices.elevenlabs_voice_id` and `agents.elevenlabs_voice_id` (migration 0000_init.sql:72, 97) | Stock voices (12) MUST NOT be deleted — they are shared across all customers. Filter to org-scoped cloned voices only (column `voices.organization_id` distinguishes). |
+| Twilio number SID | **not stored** | See Tier 2 finding below. |
+
+### Tier 2 finding (per §9.11): Twilio is not the right teardown surface
+PRD §5.22 says "Twilio number released" — but the V1 architecture provisions phone numbers through Vapi (`vapi.purchasePhoneNumber` / `vapi.releasePhoneNumber`), not directly through Twilio. There is no `twilio_phone_number_sid` column on any table; `phone_numbers/logic.ts:146` releases via `vapi.releasePhoneNumber(vapi_phone_number_id)`. The `twilio.releaseNumber(sid)` method (twilio.ts:250) exists but has no live caller and no SID source.
+
+**Decision (Tier 2):** Day 2 teardown calls `vapi.releasePhoneNumber(business.vapi_phone_number_id)`, not `twilio.releaseNumber`. Vapi forwards the release to its underlying carrier (which may or may not be Twilio depending on Vapi internals — opaque to us, and that is fine). PRD §5.22 wording will be amended on the next PRD pass to read "Vapi-managed phone number released" rather than "Twilio number released" — logged in PRD_AMENDMENTS.md after V1_SCOPE_DECISIONS.md is filled in (avoiding amendments to PRD wording while the founder review of rows 1–9 is still pending).
+
+### Founder correction (2026-04-30): VOICE_SAMPLES is PURGE, not PRESERVE
+Day 1's Tier 2 call to preserve `VOICE_SAMPLES` by default was wrong and reversed by founder review on 2026-04-30. Reasoning:
+- §5.15 + §6.4 7-year retention applies **only** to **consent recordings** (the customer's verbal consent that their voice may be cloned), which are stored in the dedicated `CONSENT_RECORDINGS` bucket.
+- `VOICE_SAMPLES` holds raw cloning training audio. Retaining that 7 years past a customer's deletion request is itself a §5.15 breach in the opposite direction — the customer asked us to delete their data, and "training audio" is exactly the kind of personal data §5.15 promises to delete.
+- The "safer error mode" framing was inverted: the safe direction for personal data after a deletion request is to delete, not retain.
+
+**Decision:** Day 2 cron purges `RECORDINGS`, `KNOWLEDGE_BASE`, **and `VOICE_SAMPLES`**. Only `CONSENT_RECORDINGS` is preserved.
+
+The original Day 1 Tier 2 entry above is preserved for paper trail; this correction supersedes it.
+
+### Day 1 deliverables — already-existing code review
+- `elevenlabs.deleteClonedVoice(voiceId)` exists at elevenlabs.ts:138 — DELETE `/v1/voices/{voice_id}`. Tests for it are added on Day 2 alongside the cron integration test, since the cron is the first caller.
+- `vapi.deleteAssistant(assistantId, idempotencyKey)` exists at vapi.ts:374 — usable as-is from cron context (env-bound client, retry already wired).
+- `vapi.releasePhoneNumber(vapi_phone_number_id, idempotencyKey)` exists and is used in production by `phone_numbers/logic.ts:146` — usable as-is.
+
+### Day 1 deliverables — NOT shipped
+- No code changes this day. Audit + decisions only, per V1_BUILD_PLAN.md Day 1 exit criterion.
+- Day 2 picks up the actual `runScheduledDeletions` rewrite + integration test.
+
+
+---
+
+## 2026-04-30 — Day 2 (Row 10) Tier 3: code-level structural carve-out for CONSENT_RECORDINGS (Option B)
+
+### Context
+PRD §5.22 day-30 hard-purge cron must never touch the `CONSENT_RECORDINGS` R2 bucket (consent recordings retained 7 years per §5.15 + §6.4). The founder's Day 2 confirmation requirement was that the cron Worker's binding list **structurally exclude** CONSENT_RECORDINGS.
+
+### Tier 3 escalation
+Cloudflare Workers do not support per-entry-point binding scope: `fetch` and `scheduled` exports share the same binding list. The HTTP API needs CONSENT_RECORDINGS bound (for the §5.4 consent-capture flow when admin/voice-clones lands), so the cron — running in the same Worker per `apps/api/wrangler.toml` `main = "src/index.ts"` — necessarily inherits the binding.
+
+Three options were presented to the founder:
+- **A.** Split the cron into a separate Worker with a reduced binding list. Strongest structural guarantee. Adds a deployable.
+- **B.** Code-level structural carve-out: cron call graph never references `env.CONSENT_RECORDINGS`, enforced by ESLint rule + reachability test. Same Worker, same binding list.
+- **C.** Integration test only — no structural enforcement.
+
+### Decision
+**Option B** (founder choice 2026-04-30). The split-Worker approach (A) was rejected as operationally heavyweight for the same practical guarantee; (C) was rejected as too weak for a compliance-critical carve-out.
+
+### Implementation
+1. Cron purge function references `env.RECORDINGS`, `env.KNOWLEDGE_BASE`, `env.VOICE_SAMPLES` only; never `env.CONSENT_RECORDINGS`.
+2. Comment block on the `CONSENT_RECORDINGS` declaration in `apps/api/src/env.ts` documenting the 7-year-retention rule, the allow-listed callers (`services/voices/*`, `admin/voice-clones/*`), and the procedure for adding a caller (DECISIONS.md entry + ESLint allow-list update).
+3. ESLint rule banning `env.CONSENT_RECORDINGS` references outside the allow-list.
+4. Unit test that imports the `runScheduledDeletions` call graph and asserts the literal string `CONSENT_RECORDINGS` does not appear in any reachable module.
+
+### Why this is sufficient
+A future engineer who wants to add a new caller hits three independent friction points: (a) the visible comment block on the type definition, (b) the lint rule failing CI, (c) the reachability test failing if they sneak the binding into the cron graph. To breach the carve-out, they must override all three. That is high enough friction that the residual risk is "deliberate sabotage," not "honest mistake," and a separate Worker doesn't meaningfully reduce that residual risk either.
+
+
+---
+
+## 2026-04-30 — Day 2 (Row 10) Tier 2: cron integration test bypasses _harness.ts
+
+The Day 2 integration test for `runScheduledDeletions` (`tests/integration/account-deletion-cron.test.ts`) builds its own mock D1 / R2 / Vapi / ElevenLabs environment instead of using `tests/integration/_harness.ts`. Reason: the harness's regex SQL recognizer doesn't model the `voices` table or the new agents/businesses lookups the rewritten cron emits, and extending it was outside the PR's allowed-files scope. The reachability test in `apps/api/src/services/account/__tests__/cron-carve-out.test.ts` remains the primary structural guard for the CONSENT_RECORDINGS carve-out; this integration test verifies behavior (Vapi/ElevenLabs called with the right IDs, R2 buckets touched correctly, CONSENT_RECORDINGS untouched, D1 soft-delete columns set, audit row written). When the harness is extended in a future pass to cover the new SQL surface and an R2 stub, this test should fold back into the shared harness — flagged as a Day 4–5 candidate when the .todo-test backlog is worked.
+
+## 2026-04-30 — Day 4 (Row 11) Tier 2: test-harness path choice (Path B — extend regex recognizer)
+
+**Decision:** Extend the existing regex-based SQL recognizer in `tests/integration/_harness.ts` rather than migrating integration tests to Wrangler `unstable_dev` (in-process Worker).
+
+**Sample evidence (8 .todos read across all 6 files):** the 28 outstanding `.todo`s cluster on a small set of distinct concerns:
+- agents.test.ts (13): ~5 SQL shapes — agents SELECT/INSERT/UPDATE, agent_versions SELECT (latest draft / latest published / by id) and INSERT. Several `.todo`s are non-SQL — they need a Vapi mock (`createAssistant`/`updateAssistant`/`createOutboundCall`) and the LLM-as-judge stub.
+- knowledge-base.test.ts (8): ZERO SQL gap — every `.todo` needs R2 object stubs + Workers AI embed stub + Vectorize stand-ins. Path A doesn't help here either; both paths need msw/vi mocks for the Cloudflare resource bindings.
+- vapi-webhook.test.ts (3): 1 KV-only (already harnessable today), 2 need `INSERT … ON CONFLICT` for `calls` + `agents WHERE vapi_assistant_id = ?` lookup.
+- onboarding.test.ts (2): Vapi outbound mock — not a SQL gap.
+- auth.test.ts (1 describe.todo): OAuth provider mocks — not a SQL gap.
+- billing.test.ts (1 describe.todo): needs `stripe_customer_id` populated by a real checkout webhook — neither harness path unblocks this without product code from another agent.
+
+So the SQL recognizer extension surface is roughly **8–10 distinct query shapes**, well under the ≥15 threshold where Path A would dominate. The remaining `.todo`s are blocked on Vapi/R2/AI/OAuth/Stripe mocking work that both paths would need anyway.
+
+**Effort delta:** Path B unlocked 7 of the agents-cluster `.todo`s plus 1 vapi-webhook in this pass with ~80 lines of recognizer additions. Path A would have required new harness scaffolding (Wrangler `unstable_dev` boot, isolated D1 setup per test, schema migration apply) before the first test could run — a half-day of plumbing for a comparable conversion count.
+
+**What becomes possible:** continued cheap conversions in Day 5 — agents create/scope/publish/rollback (with Vapi mocks via `vi.mock` or msw at the `fetch` boundary), vapi-webhook end-of-call upsert (after adding `INSERT INTO calls ... ON CONFLICT` recognizer), the Day 2 cron integration test folding back into `_harness.ts` once the `voices` table + agents/businesses lookups are added.
+
+**What becomes impossible / deferred:** any test that depends on D1's real query planner (CTEs, JSON1, FTS5) — including `first_call_review_window` upserts in calls-mutation paths if they ever get enabled. If those land, we'll either model them ad-hoc in the recognizer or carve out a per-test `unstable_dev` escape hatch (hybrid). KB tests stay `.todo` until R2/Vectorize/AI stand-ins ship.
+
+## 2026-04-30 — Day 5 (Row 11) Tier 2: msw at the fetch boundary + harness extension for calls upsert
+
+**Decision recap (no Tier 3 escalations encountered).**
+
+Two structural choices made during Day 5 worth recording:
+
+### Mock structuring — one combined `setupServer`, per-vendor handler files
+
+`tests/mocks/server.ts` spreads `[...stripeHandlers, ...vapiHandlers]` into a single msw `setupServer` rather than running parallel servers per vendor. Per-vendor state lives in module-level `stripeStore` / `vapiStore` Maps, each with a `reset*Store()` helper invoked from the global `afterEach` in `tests/setup.ts`. Rationale: msw is fastest when one server is started per worker; resetting state via maps is cheaper than tearing down handler graphs between tests. Pattern scales: future vendors (R2 presigned URLs, ElevenLabs voice cloning, Twilio, OAuth providers) drop in as sibling files (`tests/mocks/<vendor>.ts`) and get added to the spread.
+
+### Harness extension — calls upsert uses MAX/COALESCE merge in JS
+
+The new `INSERT INTO calls … ON CONFLICT(id) DO UPDATE SET …` recognizer in `_harness.ts` reproduces the SQL merge semantics from `apps/api/src/services/calls/logic.ts:applyVapiMutation` (numeric maxima for `duration_seconds`/`cost_cents`; `COALESCE(existing, incoming)` for text fields like `transcript`/`recording_r2_url`/`outcome`/`phone_number`). This is the first time the recognizer has had to model meaningful merge logic — previous extensions were pure key-value writes. Future harness extensions touching upsert paths should match the production SQL's merge behavior in JS rather than blind-overwrite, otherwise tests that exercise out-of-order Vapi event delivery will silently pass against a wrong reduction. Documented inline in `_harness.ts` near the recognizer.
+
+### Tooling trap discovered during Day 5
+
+Running `pnpm vitest run …` directly — without `pnpm test`, which threads `--config tests/vitest.config.ts` — silently skips `setupFiles`. msw never starts; integration tests hit the real internet (Stripe in this case) and fail with "Invalid API Key." Day 4's "2 currently-failing billing tests" were this exact symptom: the tests were correct, the runner invocation in the local sanity check wasn't. **Always invoke via `pnpm test` (or `pnpm test:coverage` / `pnpm test:integration`) — `pnpm vitest …` is wrong for this repo.** No code change needed; documented in PROGRESS.md Day 5 entry so future contributors don't re-trip.
+
+## 2026-05-01 — Day 7 (Row 11): Frontend ≥50% coverage gate waived (PRD §9.10 #36)
+
+**Decision:** Waive the `apps/web/**` ≥50% line-coverage threshold for V1 launch.
+
+**Rationale (founder):** `apps/web` is a Next.js 15 app with no React test infrastructure in place — no `jsdom` vitest env, no `@testing-library/react` setup, no `next/navigation` mock. Reaching 50% from the current 1.1% baseline requires ~3,000 additional lines of coverage and a half-day of infrastructure work before a single component test can run. Deferring to V1.1 sprint 1.
+
+**Mitigation plan:**
+1. V1.1 Sprint 1, Day 1: add `@testing-library/react`, `jsdom` vitest environment, `next/navigation` mock, and `@testing-library/user-event`. Wire into `tests/vitest.config.ts` as a second environment block scoped to `apps/web/**`.
+2. First coverage pass targets auth pages (`/signup`, `/login`, `/reset-password`) + dashboard home — highest-traffic, lowest churn.
+3. Re-enable the `apps/web/**` ≥50% threshold in `tests/vitest.config.ts` once coverage crosses the gate in V1.1.
+
+**Review date:** 30 days post-launch.
+
+**vitest.config.ts state:** `thresholds` contains only `'apps/api/src/**': { lines: 70 }`. Frontend key intentionally absent until V1.1 sprint 1 re-enables it.
+
+## 2026-05-01 — Day 6 cleanup: three inline documentation items
+
+### (a) Admin/logic tests use inline DB stub, not the shared harness
+The `services/admin/__tests__/logic.test.ts` unit tests build a local `makeDb()` stub rather than going through `tests/integration/_harness.ts`. Rationale: the admin functions (`logAudit`, `listCustomers`, `getCustomer`, `startImpersonation`, etc.) are pure business-logic units that take a `Bindings` env and call `env.DB.prepare().bind().[first|all|run]()`. A local stub that captures SQL strings and returns fixture rows is the right tool — lighter than the integration harness (which requires a full Hono app compose), and explicit about exactly which DB responses each function path exercises.
+
+### (b) index.ts and env.ts intentionally excluded from the 70% backend threshold
+`apps/api/src/index.ts` (Cloudflare Worker entry point, 0% coverage) and `apps/api/src/env.ts` (Wrangler bindings declaration, 0% coverage) cannot be meaningfully unit-tested: `index.ts` wires the fetch/queue/scheduled dispatch that only executes inside a real Worker runtime, and `env.ts` is a pure type declaration with no runtime logic. The `'apps/api/src/**': { lines: 70 }` threshold is intentionally measured against the full `src/` tree including these files; the 70.6% result already accounts for their 0% contribution. This is a feature: if future code is added to either file that *can* be tested, the threshold will catch it.
+
+### (c) calls/__tests__/logic.test.ts — statusCode→status fix was masking a vacuous pass
+The original assertion `rejects.toMatchObject({ statusCode: 404 })` was passing vacuously. `toMatchObject` only verifies that the *listed* keys match the actual object — a key that is absent from the actual object does not cause a failure. `ApiError` exposes `.status` (not `.statusCode`), so the assertion was checking a property that never exists and therefore always "matched." The fix to `{ status: 404 }` makes the assertion load-bearing. Confirmed clean: `grep -n "statusCode"` on that file returns no results post-fix.
+
+## 2026-05-01 — Frontend ≥50% coverage gate waived for V1 launch (PRD §9.10 #36)
+
+Frontend ≥50% coverage gate waived for V1 launch. `apps/web` has no React test infrastructure (no jsdom env, no testing-library setup, no next/navigation mock). Getting from 1.1% to 50% requires ~3,000 lines of new coverage and half-day infra work. Deferred to V1.1 sprint 1 where Day 1 is: install `@testing-library/react`, configure jsdom env in `vitest.config.ts`, and cover auth + dashboard home pages to establish the pattern. Target: 50% frontend by V1.1 sprint end. Review date: 30 days post-launch.
+
+## 2026-05-01 — Day 5 Tier 2: Usage aggregation = daily period-close sweep, not hourly increments
+
+**Decision:** The `usage-aggregation` queue worker reports overage minutes once per day via Stripe's `billing/meter_events` API with a deterministic `identifier` of `usage:${org_id}:${period_start}:${period_end}`. This **supersedes** the 2026-04-30 Day 5 (Stripe) Tier-2 decision that called for hourly `usage_records` increments scoped to (subscription_item, hour-bucket).
+
+**Rationale:**
+- Stripe deprecated `usage_records` in 2024 — the new metered prices route through `billing/meter_events`. The integration in `apps/api/src/integrations/stripe.ts:309` was already migrated; the queue worker had to follow.
+- Meter events are **absolute event records**, not deltas. Stripe sums `payload.value` across all events with distinct `identifier`s inside the meter window. Re-reporting the same `identifier` is dedupe'd server-side. So the natural cadence is "report the running total for this period, daily" rather than "report hourly deltas."
+- Idempotency now lives in the `identifier` field (per-org, per-period). Re-running the cron in the same period is a no-op on Stripe's side. No more (subscription_item, hour-bucket) bookkeeping required.
+- Daily cadence (chained off the existing `0 6 * * *` deletion-purge cron) keeps Stripe API volume to ~N orgs/day. Dashboard "minutes used this period" can read directly from the local `calls` aggregation — no need to wait for Stripe to round-trip.
+
+**Tradeoffs accepted:**
+- "Minutes used this period" surface lag is up to 24h on the customer's invoice (not the dashboard, which reads D1 directly). Acceptable: Stripe only finalizes the invoice at period-end, and our daily sweep ensures the meter is current well before then. A `usage_aggregation_org` per-org message is also wired so a webhook (e.g. `customer.subscription.updated`) can force an immediate re-report on demand.
+- Plan minute limits (`starter=500`, `growth=1500`, `pro=4000`) are duplicated from `apps/web/lib/plans.ts` into `apps/api/src/queues/usage-aggregation.ts` (`PLAN_INCLUDED_MINUTES`). Pulling the marketing module into a Worker would drag in `next/*` deps. The duplication is guarded by a unit test that asserts the limits match the marketing values. If they ever drift, the test fails.
+
+**Files:**
+- `apps/api/src/queues/usage-aggregation.ts` — new worker, `kind: usage_aggregation_period_close` (sweep) + `kind: usage_aggregation_org` (per-org).
+- `apps/api/src/index.ts` — daily 06:00 UTC cron now also enqueues a period-close message; queue dispatcher routes both kinds.
+- `apps/api/src/queues/__tests__/usage-aggregation.test.ts` — 8 tests covering no-overage, overage, idempotency, partial failure, per-org dispatch, inactive sub, no-Stripe-key, and the plan-limit drift guard.
+
+## 2026-05-01 — Tier 2: Admin live-ops `/v1/admin/ops/health` shape and queue-depth deferral
+
+**Decision:** Build the admin live-ops health endpoint at `GET /v1/admin/ops/health` reusing the same component-health probes as the public `/v1/status` (extracted into `apps/api/src/lib/component-health.ts`). Admin-only signals (`recent_errors_5min`, `recent_calls_5min`, `recent_signups_24h`, `active_subscriptions`) ride in the same response envelope. Queue depth is shipped as the literal `null` with a documented V1.1 follow-up.
+
+**Rationale:**
+- The frontend polls every 5s. Duplicating component checks (one helper for `/v1/status`, another for `/v1/admin/ops/health`) is a drift hazard — the founder's dashboard would silently disagree with the public status page. One helper, two consumers.
+- Cloudflare Queues do not expose a depth metric via the runtime API or the bindings. Options considered: (a) `wrangler queues consumer status` shell-out — not available in Workers; (b) Cloudflare Analytics Engine queries — adds a new auth surface and an extra ~100ms per request to a hot poll path; (c) self-counting via KV at producer/consumer boundaries — viable but touches every queue producer site, more than this PR should bite off. Shipping `queues: null` keeps the contract honest and lets the dashboard render a "coming soon" tile.
+- "Active subscriptions" is sourced from the `subscriptions` table (not `organizations.stripe_subscription_status`, which doesn't exist) — `COUNT(DISTINCT organization_id) WHERE status IN ('active', 'trialing')`. Filed as the canonical interpretation of the spec.
+- Each ops counter query is wrapped in `.catch(() => ({ n: 0 }))` so a single query failure cannot cascade across the four counters. The component health report already surfaces D1 outages separately, so individual counter failures degrading silently to `0` is the right blast-radius isolation for a polling endpoint.
+- No Sentry calls in this handler — at one poll/5s per admin tab, Sentry breadcrumbs would dominate the project's quota. Debugging happens via the request logger.
+
+**Files:**
+- `apps/api/src/lib/component-health.ts` — new shared helper, `runComponentHealthChecks(env)`.
+- `apps/api/src/routes/health.ts` — refactored to call the shared helper (no behavior change).
+- `apps/api/src/services/admin/ops-handlers.ts` — new `opsHealthHandler` + `getOpsSignals`.
+- `apps/api/src/services/admin/routes.ts` — mounts `GET /ops/health`.
+- `apps/api/src/services/admin/__tests__/ops-handlers.test.ts` — 10 new tests (signals roll-up, is_test filter, status-enum filter, individual-counter failure isolation, 401 unauth, 200 happy path, 207 degraded paths).
+- `docs/API.md` — endpoint added to the Admin section.
+
+**V1.1 follow-up:** Track our own queue depth counters in KV (incr on producer `.send`, decr on consumer ack) and surface them in the `queues` field. Estimated: 2h, mostly producer-site instrumentation.
+
+## 2026-05-01 — Tier 2: Deferred Vapi assistant creation + subscription gate
+
+**Decision:** Move the `vapi.createAssistant` call out of `POST /v1/agents` (creation no longer touches Vapi) and into `POST /v1/agents/:id/publish` as a one-time mint when `vapi_assistant_id IS NULL`. Add a new `requireActiveSubscription()` middleware that returns 402 `PAYMENT_REQUIRED` and mount it on `publish`, `test-call`, and `phone-numbers/provision`. `trialing` counts as a passing status alongside `active`. The middleware is NOT mounted on the onboarding probe-call (`/v1/onboarding/forwarding-probe`) because that endpoint exists precisely to let users verify the platform before subscribing.
+
+**Rationale:**
+- **Vapi quota waste at create-time.** Pre-change, every signup that drafted an agent (even just to explore) burned a Vapi assistant slot. With the deferred-create model, only paying customers who actually publish consume Vapi resources. The agents table now persists with `vapi_assistant_id = NULL` and the publish path mints the assistant once, then updates it on subsequent publishes.
+- **Status policy.** `trialing` is allowed because Stripe trials require a card on file — they're paying customers in every meaningful sense. `past_due`, `canceled`, and `incomplete` all fail closed: dunning queue handles `past_due` separately, and we don't want a customer mid-cancellation to spin up new Vapi resources.
+- **402 PAYMENT_REQUIRED envelope.** Existing error infrastructure (`ApiError`, `errorResponse`, `errorHandler`) cleanly extends to a new error code with the documented details payload `{ code: "SUBSCRIPTION_REQUIRED", current_status: <string|null> }`. The frontend agent can detect on `response.status === 402` and `error.details.code === "SUBSCRIPTION_REQUIRED"` to route to the upgrade modal — both signals are stable.
+- **Onboarding probe carve-out.** The forwarding-verification probe call is the FIRST thing a user does after signup, before any subscription exists. Gating it would make the platform impossible to evaluate. The probe call is rate-limited and uses the shared default Vapi phone number; the cost exposure is bounded.
+- **Release is also ungated.** A canceled customer must still be able to detach their number — gating release would create dead phone-number records nobody can clean up.
+
+**Files:**
+- `apps/api/src/lib/errors.ts` — new `PAYMENT_REQUIRED` (402) error code.
+- `apps/api/src/middleware/error-handler.ts` — `statusToCode(402) -> "PAYMENT_REQUIRED"`.
+- `apps/api/src/middleware/require-subscription.ts` — new middleware.
+- `apps/api/src/services/agents/logic.ts` — `createAgent` no longer calls Vapi; `publishAgent` mints (createAssistant) on first publish, updates thereafter.
+- `apps/api/src/services/agents/routes.ts` — middleware on `publish` + `test-call`.
+- `apps/api/src/services/phone_numbers/routes.ts` — middleware on `provision` only (release is intentionally open).
+- `apps/api/src/middleware/__tests__/require-subscription.test.ts` — 9 unit tests (no sub, past_due/canceled/incomplete, active, trialing, missing org_id, query shape).
+- `tests/integration/agents.test.ts` — updated create tests (no Vapi call), added publish tests for first-publish-mint, 402 paths, trialing-allowed.
+- `tests/integration/_harness.ts` — recognizers for `SELECT status FROM subscriptions … LIMIT 1` and `UPDATE agents SET vapi_assistant_id = ?`.
+- `docs/API.md` — agent + phone-number sections updated with subscription-gate semantics.
+
+**V1.1 follow-up (optional):** Telemetry counter for 402 hits per organization to detect users who repeatedly bounce off the gate (likely conversion candidates for a sales nudge).

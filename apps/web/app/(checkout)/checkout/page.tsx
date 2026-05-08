@@ -83,7 +83,7 @@ function CheckoutForm({
           : {}),
       }),
     onSuccess: (res) => {
-      window.location.href = res.data.checkout_url;
+      window.location.href = res.checkout_url;
     },
     onError: (err) => {
       if (err instanceof ApiError) setApiError(err);

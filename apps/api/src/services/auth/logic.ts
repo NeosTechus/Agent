@@ -17,11 +17,7 @@
 
 import { drizzle } from "drizzle-orm/d1";
 import { eq } from "drizzle-orm";
-import {
-  organizationMembers,
-  organizations,
-  users,
-} from "@app/db/schema";
+import { users } from "@app/db/schema";
 import type { D1Database } from "@cloudflare/workers-types";
 
 import { ApiError } from "../../lib/errors";
@@ -346,6 +342,7 @@ export interface SessionContext {
     email: string;
     name: string | null;
     email_verified_at: number | null;
+    is_admin: 0 | 1;
   };
   organization: { id: string; name: string; plan_tier: string };
   role: "owner" | "manager" | "staff" | "viewer";
@@ -359,7 +356,7 @@ export async function loadSessionContext(
   const row = await d1
     .prepare(
       `SELECT u.id AS u_id, u.email AS u_email, u.name AS u_name,
-              u.email_verified_at AS u_verified,
+              u.email_verified_at AS u_verified, u.is_admin AS u_is_admin,
               o.id AS o_id, o.name AS o_name, o.plan_tier AS o_plan,
               m.role AS m_role
          FROM users u
@@ -374,6 +371,7 @@ export async function loadSessionContext(
       u_email: string;
       u_name: string | null;
       u_verified: number | null;
+      u_is_admin: number | null;
       o_id: string;
       o_name: string;
       o_plan: string;
@@ -387,6 +385,7 @@ export async function loadSessionContext(
       email: row.u_email,
       name: row.u_name,
       email_verified_at: row.u_verified,
+      is_admin: row.u_is_admin === 1 ? 1 : 0,
     },
     organization: { id: row.o_id, name: row.o_name, plan_tier: row.o_plan },
     role: row.m_role,

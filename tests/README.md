@@ -3,6 +3,8 @@
 QA Agent surface — owns `/tests` and `__tests__/` folders next to source.
 See `.claude/agents/qa.md` for the full charter.
 
+> **Always run via `pnpm test`, `pnpm test:coverage`, or `pnpm test:integration` — never `pnpm vitest` directly. Running vitest directly skips `setupFiles` and msw never starts, causing all mocked-fetch tests to fail with unexpected 500s.**
+
 ## Layout
 
 ```

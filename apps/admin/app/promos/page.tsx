@@ -51,7 +51,7 @@ export default function PromosPage() {
         <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-400">
           Create new code
         </h2>
-        <div className="grid grid-cols-5 gap-2 text-sm">
+        <div className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-2 lg:grid-cols-5">
           <input
             value={code}
             onChange={(e) => setCode(e.target.value.toUpperCase())}
@@ -104,7 +104,8 @@ export default function PromosPage() {
         )}
       </section>
 
-      <table className="w-full text-sm">
+      <div className="overflow-x-auto">
+      <table className="w-full min-w-[36rem] text-sm">
         <thead className="border-b border-slate-800 text-left text-xs uppercase text-slate-500">
           <tr>
             <th className="py-2">Code</th>
@@ -130,6 +131,7 @@ export default function PromosPage() {
           ))}
         </tbody>
       </table>
+      </div>
     </Shell>
   );
 }

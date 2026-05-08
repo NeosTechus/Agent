@@ -107,6 +107,66 @@ describe("POST /v1/onboarding/business", () => {
 });
 
 describe("POST /v1/onboarding/forwarding/validate", () => {
-  it.todo("places a Vapi outbound probe call when a number is provisioned");
+  it("places a Vapi outbound probe call when a number is provisioned", async () => {
+    const env = buildTestApp({
+      envOverrides: {
+        VAPI_API_KEY: "test_key",
+        VAPI_DEFAULT_PHONE_NUMBER_ID: "vapi_phone_default",
+      },
+    });
+    const cookie = await signupAndCookie(env);
+    const orgId = [...env.db.tables.organizations.values()][0]!.id as string;
+    // Seed a business that already has a provisioned forwarding number +
+    // existing line + an agent (the route requires all three).
+    const businessId = "biz_probe";
+    env.db.tables.businesses.set(businessId, {
+      id: businessId,
+      organization_id: orgId,
+      business_name: "Probe Cafe",
+      vertical: "restaurant",
+      address: null,
+      hours_json: null,
+      existing_phone_number: "+15555550199",
+      twilio_forwarding_number: "+15555550111",
+      vapi_phone_number_id: null,
+      forwarding_probe_call_id: null,
+      forwarding_probe_started_at: null,
+      forwarding_verified_at: null,
+      deleted_at: null,
+      created_at: Date.now(),
+      updated_at: Date.now(),
+    });
+    env.db.tables.agents.set("agt_probe", {
+      id: "agt_probe",
+      organization_id: orgId,
+      business_id: businessId,
+      name: "Probe Agent",
+      type: "inbound",
+      system_prompt: "x",
+      first_message: "x",
+      voice_id: "voice_aria",
+      capabilities_json: "{}",
+      vapi_assistant_id: "vapi_asst_probe",
+      status: "published",
+      version: 1,
+      deleted_at: null,
+      created_at: Date.now(),
+      updated_at: Date.now(),
+    });
+
+    const res = await callApp(env, "/v1/onboarding/forwarding/validate", {
+      method: "POST",
+      cookie,
+      body: { business_id: businessId },
+    });
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { data: { status: string } };
+    expect(json.data.status).toBe("pending");
+    // Probe call captured by the Vapi mock and stamped on the business row.
+    const stored = env.db.tables.businesses.get(businessId);
+    expect(typeof stored?.forwarding_probe_call_id).toBe("string");
+    expect(typeof stored?.forwarding_probe_started_at).toBe("number");
+  });
+
   it.todo("returns verified=true after the inbound webhook lands the probe");
 });

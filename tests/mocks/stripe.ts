@@ -42,11 +42,11 @@ export const stripeStore = {
   checkoutSessions: new Map<string, StoredCheckoutSession>(),
   subscriptions: new Map<string, StoredSubscription>(),
   portalSessions: new Map<string, { id: string; url: string; customer: string }>(),
-  usageRecords: [] as Array<{
-    id: string;
-    subscription_item: string;
-    quantity: number;
+  meterEvents: [] as Array<{
+    identifier: string;
+    event_name: string;
     timestamp: number;
+    payload: Record<string, string>;
   }>,
   /** All `Idempotency-Key` headers we've seen — handy for test assertions. */
   idempotencyKeys: [] as string[],
@@ -57,7 +57,7 @@ export function resetStripeStore(): void {
   stripeStore.checkoutSessions.clear();
   stripeStore.subscriptions.clear();
   stripeStore.portalSessions.clear();
-  stripeStore.usageRecords = [];
+  stripeStore.meterEvents = [];
   stripeStore.idempotencyKeys = [];
 }
 
@@ -69,7 +69,13 @@ function rand(prefix: string): string {
 }
 
 // Stripe sends form-encoded request bodies — parse them.
-async function parseBody(request: Request): Promise<Record<string, string>> {
+// Accepts the structural subset both Workers `Request` and msw v2's
+// `StrictRequest<DefaultBodyType>` satisfy. Avoids a typecheck mismatch
+// where msw's request type is not assignable to the Workers-typed Request
+// (`Cf` vs `RequestInitCfProperties` divergence).
+async function parseBody(
+  request: { text(): Promise<string> },
+): Promise<Record<string, string>> {
   const text = await request.text();
   const params = new URLSearchParams(text);
   const out: Record<string, string> = {};
@@ -252,22 +258,27 @@ export const stripeHandlers = [
     },
   ),
 
-  // POST /v1/subscription_items/:id/usage_records — metered usage.
+  // POST /v1/billing/meter_events — metered usage (replaces legacy usage_records).
   http.post(
-    'https://api.stripe.com/v1/subscription_items/:id/usage_records',
-    async ({ params, request }) => {
-      const id = params.id as string;
+    'https://api.stripe.com/v1/billing/meter_events',
+    async ({ request }) => {
       const body = await parseBody(request);
       const idem = request.headers.get('idempotency-key');
       if (idem) stripeStore.idempotencyKeys.push(idem);
-      const record = {
-        id: rand('mbur'),
-        subscription_item: id,
-        quantity: Number.parseInt(body.quantity ?? '0', 10),
-        timestamp: Number.parseInt(body.timestamp ?? `${Math.floor(Date.now() / 1000)}`, 10),
+      const event = {
+        identifier: body.identifier ?? rand('mbev'),
+        event_name: body.event_name ?? '',
+        timestamp: Number.parseInt(
+          body.timestamp ?? `${Math.floor(Date.now() / 1000)}`,
+          10,
+        ),
+        payload: {
+          stripe_customer_id: body['payload[stripe_customer_id]'] ?? '',
+          value: body['payload[value]'] ?? '0',
+        },
       };
-      stripeStore.usageRecords.push(record);
-      return HttpResponse.json({ ...record, object: 'usage_record' });
+      stripeStore.meterEvents.push(event);
+      return HttpResponse.json({ ...event, object: 'billing.meter_event' });
     },
   ),
 ];

@@ -36,7 +36,7 @@ describe('POST /v1/auth/signup', () => {
     const setCookie = extractSetCookie(res);
     expect(setCookie).toContain('ai_receptionist_session=');
     expect(setCookie).toContain('HttpOnly');
-    expect(setCookie).toContain('SameSite=Strict');
+    expect(setCookie).toContain('SameSite=Lax');
 
     expect(env.db.tables.users.size).toBe(1);
     expect(env.db.tables.organizations.size).toBe(1);

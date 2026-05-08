@@ -355,21 +355,23 @@ Authenticated. Managed at `/v1/agents`. The Agent Builder UI in `apps/web/app/(d
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/v1/agents` | List all agents for the authenticated organization |
-| POST | `/v1/agents` | Create a new agent — provisions a Vapi assistant |
+| POST | `/v1/agents` | Create a new agent — persists with `vapi_assistant_id = NULL`; the Vapi assistant is minted on first publish (deferred-create) |
 | GET | `/v1/agents/:id` | Fetch a single agent |
 | PATCH | `/v1/agents/:id` | Update draft (name, prompt, first message, voice, capabilities) |
-| POST | `/v1/agents/:id/publish` | Push current draft to Vapi and bump live version |
+| POST | `/v1/agents/:id/publish` | First publish mints the Vapi assistant; subsequent publishes update it. Writes a published `agent_versions` row. **Requires active subscription.** |
 | POST | `/v1/agents/:id/rollback` | Body `{ version_id }` — restore a prior version |
 | GET | `/v1/agents/:id/versions` | Version history |
 | GET | `/v1/agents/voices` | List the 12 stock ElevenLabs voices |
-| POST | `/v1/agents/:id/test-call` | Body `{ to_number }` — places an outbound test call to the verified number |
+| POST | `/v1/agents/:id/test-call` | Body `{ to_number }` — places an outbound test call to the verified number. **Requires active subscription.** |
 
 **Capabilities** (snake_case on the wire, translated to Vapi camelCase server-side):
 `take_reservations`, `take_orders`, `answer_menu_questions`, `transfer_to_human`, `take_messages`.
 
 **Safety prefix:** every system prompt sent to Vapi is prepended with `SAFETY_PROMPT_PREFIX` from `apps/api/src/lib/safety-prompt.ts` (PRD 5.8). Owners cannot override.
 
-**Errors:** `NOT_FOUND` (agent or version), `VALIDATION_ERROR`, `UNAUTHENTICATED`, `SERVICE_UNAVAILABLE` (`VAPI_NOT_CONFIGURED`), `UNPROCESSABLE_ENTITY` (test call without provisioned number).
+**Subscription gate:** `publish` and `test-call` return 402 `PAYMENT_REQUIRED` with `details.code = "SUBSCRIPTION_REQUIRED"` when the caller has no `subscriptions` row, or the latest row's `status` is not in `{active, trialing}`. Frontend can detect this and route to the upgrade modal. See `apps/api/src/middleware/require-subscription.ts`.
+
+**Errors:** `NOT_FOUND` (agent or version), `VALIDATION_ERROR`, `UNAUTHENTICATED`, `PAYMENT_REQUIRED` (no active subscription on publish or test-call), `SERVICE_UNAVAILABLE` (`VAPI_NOT_CONFIGURED`), `UNPROCESSABLE_ENTITY` (test call without provisioned number).
 
 ---
 
@@ -381,10 +383,12 @@ Authenticated. Managed at `/v1/phone-numbers`.
 |---|---|---|
 | GET | `/v1/phone-numbers/search?area_code=&limit=` | Search Twilio's pool for available numbers |
 | POST | `/v1/phone-numbers/lookup-carrier` | Body `{ phone_number }` — Twilio Lookup; returns carrier (used for forwarding-instructions auto-detect, PRD 4.7) |
-| POST | `/v1/phone-numbers/provision` | Body `{ business_id, agent_id, area_code? }` — provisions via Vapi → Twilio, binds to assistant, stores E.164 on `businesses.twilio_forwarding_number` |
+| POST | `/v1/phone-numbers/provision` | Body `{ business_id, agent_id, area_code? }` — provisions via Vapi → Twilio, binds to assistant, stores E.164 on `businesses.twilio_forwarding_number`. **Requires active subscription.** |
 | POST | `/v1/phone-numbers/release` | Body `{ business_id }` — releases the assigned number; 30-day post-churn hold owned by queue worker |
 
-**Errors:** `NOT_FOUND`, `CONFLICT` (already provisioned), `SERVICE_UNAVAILABLE` (`VAPI_NOT_CONFIGURED` or `TWILIO_NOT_CONFIGURED`).
+**Subscription gate:** `provision` returns 402 `PAYMENT_REQUIRED` with `details.code = "SUBSCRIPTION_REQUIRED"` when the caller has no active or trialing subscription. `release` is intentionally NOT gated so canceled customers can still detach their number.
+
+**Errors:** `NOT_FOUND`, `CONFLICT` (already provisioned), `PAYMENT_REQUIRED` (provision without active subscription), `SERVICE_UNAVAILABLE` (`VAPI_NOT_CONFIGURED` or `TWILIO_NOT_CONFIGURED`).
 
 ---
 
@@ -472,6 +476,7 @@ All routes require a valid `Cf-Access-Jwt-Assertion` header (or `X-Admin-Email` 
 | POST | `/v1/admin/promos` | Create promo code |
 | GET | `/v1/admin/flagged-calls` | Calls with `flagged = 1` |
 | GET | `/v1/admin/audit-logs` | Search audit log with cursor pagination |
+| GET | `/v1/admin/ops/health` | Live-ops dashboard health (component checks + recent_errors_5min, recent_calls_5min, recent_signups_24h, active_subscriptions; `queues: null` until V1.1). 200 operational, 207 degraded. |
 
 ## Demo (Phase 6 — public)
 

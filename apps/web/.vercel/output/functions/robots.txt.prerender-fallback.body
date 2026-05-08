@@ -1,0 +1,16 @@
+User-Agent: *
+Allow: /
+Allow: /pricing
+Allow: /how-it-works
+Allow: /faq
+Allow: /contact
+Allow: /status
+Allow: /privacy
+Allow: /terms
+Disallow: /dashboard
+Disallow: /onboarding
+Disallow: /checkout
+Disallow: /login
+Disallow: /signup
+
+Sitemap: http://localhost:3000/sitemap.xml

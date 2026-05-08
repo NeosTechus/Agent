@@ -19,6 +19,7 @@ import { demoRoutes } from "../services/demo/routes";
 import { customerWebhookRoutes } from "../services/webhooks/routes";
 import { teamPublicRoutes, teamRoutes } from "../services/team/routes";
 import { accountRoutes } from "../services/account/routes";
+import { composerRoutes } from "../services/composer/routes";
 
 export const routes = new Hono<AppEnv>()
   // Public liveness/version routes.
@@ -49,6 +50,8 @@ export const routes = new Hono<AppEnv>()
   .route("/v1/invite", teamPublicRoutes)
   // Account deletion + 30-day grace.
   .route("/v1/account", accountRoutes)
+  // Composer — in-dashboard AI helper (Groq-backed).
+  .route("/v1/composer", composerRoutes)
   // Inbound webhooks — public, signature-authenticated. Mounted under
   // /v1/webhooks which is in the auth middleware's public allowlist.
   .route("/v1/webhooks", stripeWebhookRoutes)

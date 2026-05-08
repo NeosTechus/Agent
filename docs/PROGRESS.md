@@ -2,6 +2,150 @@
 
 Phase-by-phase tracker for the AI Receptionist platform build. Template per PRD Section 9.12.
 
+Scope reconciliation pending founder review per V1_SCOPE_RECONCILIATION.md.
+Decision template at V1_SCOPE_DECISIONS.md — awaiting founder row-by-row walkthrough for rows 1–9. Rows 10/11/12 (pre-seeded blockers) build proceeding per V1_BUILD_PLAN.md.
+
+### V1_BUILD_PLAN.md — Day 1 (2026-04-30) — COMPLETE
+**Row 10 part 1: external-service teardown audit (no code).** Owner: orchestrator (read-only audit).
+
+Shipped:
+- R2 namespace map: 4 separate buckets (RECORDINGS, KNOWLEDGE_BASE → PURGE; VOICE_SAMPLES, CONSENT_RECORDINGS → PRESERVE). Bucket-level carve-out is structurally safer than prefix-level — no wildcard-purge risk for consent material.
+- External-resource ID map: agents.vapi_assistant_id, businesses.vapi_phone_number_id, voices.elevenlabs_voice_id + agents.elevenlabs_voice_id (filter stock voices). Twilio SID not stored — see Tier 2 below.
+- Confirmed `elevenlabs.deleteClonedVoice` (elevenlabs.ts:138), `vapi.deleteAssistant` (vapi.ts:374), `vapi.releasePhoneNumber` (already in production use) are usable as-is from cron context. No new client methods needed.
+- All findings logged in /docs/DECISIONS.md under "Day 1 (Row 10): R2 namespace map + external-resource teardown audit."
+
+Tier 2 decisions (documented + continuing):
+1. **Phone-number teardown calls Vapi, not Twilio.** PRD §5.22 wording "Twilio number released" is architecturally incorrect — V1 provisions phones via Vapi. Day 2 cron calls `vapi.releasePhoneNumber(vapi_phone_number_id)`. PRD wording amendment deferred to PRD_AMENDMENTS.md once V1_SCOPE_DECISIONS.md is filled in.
+2. **`VOICE_SAMPLES` R2 bucket is preserve-by-default** until the cloning pipeline lands and clarifies whether stored material falls under §5.15 7-year retention. Safer error mode is to retain.
+
+Tier 3 escalations: none.
+
+Remaining for row 10: Day 2 — wire `runScheduledDeletions` (services/account/logic.ts:131) to call the four teardown surfaces with idempotency + per-resource audit logging + integration test that asserts CONSENT_RECORDINGS bucket is never touched.
+
+Awaiting "continue" before starting Day 2.
+
+### V1_BUILD_PLAN.md — Day 2 (2026-04-30) — COMPLETE
+**Row 10 part 2: cron rewrite + Option B carve-out.** Owner: backend agent.
+
+Founder corrections from Day 1 review applied first:
+- `VOICE_SAMPLES` → PURGE (reversed Day 1 conservative call). Logged in DECISIONS.md.
+- PRD §5.22 phone-number wording amendment reserved as a stub in PRD_AMENDMENTS.md.
+- Tier 3 carve-out path: Option B (code-level structural guard). Logged in DECISIONS.md.
+
+Shipped:
+- `apps/api/src/services/account/logic.ts` (+208/-15) — `runScheduledDeletions` rewritten. For each due org, in order: Vapi `deleteAssistant` per agent, Vapi `releasePhoneNumber` per business, ElevenLabs `deleteClonedVoice` per `voices` row (org-scoped only — stock voices are constants in `vapi.ts` `STOCK_VOICES` and never in the DB), R2 paginated list+delete across `RECORDINGS` / `KNOWLEDGE_BASE` / `VOICE_SAMPLES`, then existing D1 soft-deletes last. Each external call try/catch'd; 404s mapped to success for re-run safety. New audit actions `account.deletion.purge_failed` (per-failure) and `account.deletion.partial` (org-level when failures > 0).
+- `apps/api/src/env.ts` (+8) — Comment block on `CONSENT_RECORDINGS` declaration documenting the 7-year carve-out, allow-list (`services/voices/**`, `admin/voice-clones/**`), and add-a-caller procedure (DECISIONS.md entry + ESLint allow-list update).
+- `eslint.config.mjs` (+30) — `no-restricted-syntax` rule banning `env.CONSENT_RECORDINGS` member access AND bare `CONSENT_RECORDINGS` identifier (catches destructuring) outside the allow-list. Verified the rule fires on a temporary reference and is clean otherwise.
+- `apps/api/src/services/account/__tests__/cron-carve-out.test.ts` (+73, new) — Reachability test: walks relative imports from `logic.ts` and asserts no production module reachable from `runScheduledDeletions` contains `CONSENT_RECORDINGS` (comments stripped before check). Belt-and-suspenders structural guard.
+- `tests/integration/account-deletion-cron.test.ts` (+258, new) — Behavioral test: seeds an org with Vapi/ElevenLabs/R2 resources, runs the cron, asserts external mocks were called with correct IDs, CONSENT_RECORDINGS bucket sees zero list/delete calls and seeded consent key survives, D1 soft-deletes set, `account.deletion.executed` audit row written.
+
+Verified locally:
+- `pnpm vitest run` against the two new tests: 2 passed.
+- `pnpm exec eslint apps/api/src/services/account/ eslint.config.mjs`: clean.
+- `pnpm --filter @app/api exec tsc --noEmit`: clean.
+
+Tier 1 decisions (silent): `VOICE_SAMPLES` R2 prefix `${orgId}/` (no current writer; documented in code comment); `isAlreadyGone` 404→success mapping; ESLint allow-list for `**/*.test.ts` + `**/__tests__/**` (test fixtures aren't production callers — and one pre-existing test fixture in `services/billing/__tests__/logic.test.ts` would have become a CI error otherwise).
+
+Tier 2 decision: integration test bypasses `tests/integration/_harness.ts` because the regex SQL recognizer doesn't model `voices` and the cron's new agents/businesses lookups. Self-contained mock env in the test file. Folding back to the shared harness flagged as a Day 4–5 candidate when the .todo-test backlog is worked. Logged in DECISIONS.md.
+
+Epistemic status of the integration test: it runs against a hand-rolled D1/R2 mock the agent built. It validates the cron's design (call ordering, ID lookup, carve-out semantics), not its behavior against real R2 list/delete pagination semantics. The reachability test is the structural guard. Behavioral validation against real D1/R2 lands when the cron folds into the shared harness on Day 4–5.
+
+Tier 3 escalations: none.
+
+Awaiting "continue" before starting Day 3 (Row 12 perf measurement).
+
+### V1_BUILD_PLAN.md — Day 4 (2026-04-30) — COMPLETE
+**Row 11 part 1: coverage baseline + harness path + first batch of `.todo` conversions.** Owner: QA Agent.
+
+Day 4 baseline (pre-conversion, `pnpm test:coverage`):
+```
+Backend (apps/api/src/**):  32.6% lines (2553/7843), 66.5% branches  (target ≥70%, gap −37.4)
+Frontend (apps/web/**):      1.1% lines (69/6189),   13.6% branches  (target ≥50%, gap −48.9)
+```
+
+Top-15 lowest-coverage backend files (≥20 lines):
+- 0.0% apps/api/src/env.ts (136L)
+- 0.0% apps/api/src/index.ts (158L)
+- 0.0% apps/api/src/integrations/deepgram.ts (117L)
+- 0.0% apps/api/src/integrations/groq.ts (108L)
+- 0.0% apps/api/src/lib/authz.ts (35L)
+- 0.0% apps/api/src/lib/sentry.ts (38L)
+- 0.0% apps/api/src/middleware/idempotency.ts (58L)
+- 0.0% apps/api/src/queues/dunning.ts (102L)
+- 0.0% apps/api/src/queues/quality-grading.ts (99L)
+- 0.0% apps/api/src/queues/recording-upload.ts (56L)
+- 0.0% apps/api/src/queues/webhook-delivery.ts (161L)
+- 0.0% apps/api/src/queues/weekly-digest.ts (136L)
+- 0.0% apps/api/src/services/agents/safety-judge.ts (72L)
+- 0.5% apps/api/src/queues/email-send.ts (209L)
+- 0.5% apps/api/src/services/agents/logic.ts (393L)
+
+Top-15 lowest-coverage frontend files (all 0.0%, ≥20 lines): app/layout.tsx, app/not-found.tsx, app/(auth)/{layout,accept-invite,forgot-password,login,reset-password,signup,verify-email}, app/(checkout)/{layout,checkout/page,checkout/canceled,checkout/success}, app/(dashboard)/{layout,agent}.
+
+Harness path: **Path B (extend regex SQL recognizer)** — see DECISIONS.md "Day 4 (Row 11): test-harness path choice."
+
+Conversions this pass (8 `.todo` → real assertions):
+- `tests/integration/agents.test.ts`: 7 — POST 401, POST 400, PATCH update+status-bump, PATCH 404 cross-tenant, rollback 404 unknown version, test-call 422 no phone, GET /voices 12 stock voices.
+- `tests/integration/vapi-webhook.test.ts`: 1 — dedup via WEBHOOK_DEDUP KV returns `deduplicated: true`.
+- Plus 3 net-new agents tests (list empty, list scoped to org, GET-by-id 404) that fell out of the harness extension.
+
+Coverage delta (post-conversion):
+```
+Backend:  35.0% lines (2748/7843), 67.4% branches  (Δ +2.4 pts lines, +0.9 pts branches)
+Frontend:  1.1% lines (69/6189),   13.6% branches  (no change — backend-only conversions)
+Total tests: 140 → 143; passing: 112 → 125; .todo: 26 → 18.
+```
+
+Real bugs surfaced: none in this pass. 2 failures in `tests/integration/billing.test.ts` (checkout + cancel) — cause: `sk_test_dummy` rejected by Stripe SDK when integration tests don't mock the SDK boundary; pre-dates this sprint per `git stash` verification; resolves in Day 5 when Stripe mocks are scaffolded.
+
+Remaining `.todo`s after Day 4 (18 across 6 files): agents create/scope/publish×2/rollback-copy/test-call-dispatch (6) — all need Vapi mock + safety-judge stub; knowledge-base (8) — need R2/AI/Vectorize stand-ins; onboarding (2) — Vapi outbound mock; vapi-webhook (2) — `INSERT INTO calls ON CONFLICT` recognizer + agents-by-vapi-assistant-id; auth (1 describe.todo OAuth); billing (1 describe.todo billing portal — needs `stripe_customer_id` populated by checkout webhook).
+
+### V1_BUILD_PLAN.md — Day 5 (2026-04-30) — COMPLETE
+**Row 11 part 2: third-party fetch-boundary mocks + unblocked `.todo` conversions.** Owner: QA Agent.
+
+What shipped:
+- `tests/mocks/vapi.ts` — msw handlers for the Vapi REST surface (`POST /assistant`, `PATCH /assistant/:id`, `GET /assistant/:id`, `DELETE /assistant/:id`, `POST /call`). In-memory `vapiStore` (assistants, calls, idempotencyKeys) with `resetVapiStore()` wired into the `afterEach` hook in `tests/setup.ts`.
+- `tests/mocks/server.ts` now spreads both Stripe + Vapi handlers into one msw `setupServer`.
+- `tests/mocks/README.md` — full vendor docs (handler URLs, request/response shapes, extension snippets, in-memory store contracts, out-of-scope list for Day 6).
+- `tests/integration/_harness.ts` (Path B extension): added `calls` + `first_call_review_window` tables; new SELECT recognizers (`agents WHERE vapi_assistant_id = ?`, `first_call_review_window WHERE organization_id = ?`); new RUN recognizers (`INSERT INTO calls … ON CONFLICT(id) DO UPDATE SET …` with MAX/COALESCE merge semantics matching `services/calls/logic.ts`, `INSERT OR IGNORE INTO first_call_review_window`, `UPDATE calls SET flagged = 1`, `UPDATE first_call_review_window SET calls_remaining = calls_remaining - 1`, full-row rollback `UPDATE agents SET system_prompt … status = 'published'`).
+
+Real bugs surfaced: **none** — but a real-world tooling trap: `pnpm vitest …` (without `--config tests/vitest.config.ts`) silently skips the setup file and the per-vendor mocks never start. Day 4's "2 failing billing tests" were actually a misuse of the runner: invoking via `pnpm test` (which threads the config through) makes them green even without further work. Documented in DECISIONS.md and via removal of the fake "currently failing" framing.
+
+Conversions this pass (8 `.todo` → real assertions):
+- `tests/integration/agents.test.ts` (6): create-with-Vapi-assistant, scopes-to-org, publish writes version row + pushes patch to Vapi, publish bumps version counter, rollback copies content + pushes patch, test-call dispatches `createOutboundCall` (asserts the recorded call body).
+- `tests/integration/onboarding.test.ts` (1): `forwarding/validate` places a Vapi probe call and stamps `forwarding_probe_call_id` + `forwarding_probe_started_at`.
+- `tests/integration/vapi-webhook.test.ts` (1): end-of-call-report event → calls row upsert scoped to the agent's org (with marked-test metadata to skip publishEvent + email-queue branches that aren't relevant to the upsert assertion).
+
+Coverage delta (post-conversion):
+```
+Backend:  42.6% lines (3312/7767), branches improved alongside  (Δ +7.6 pts lines vs Day 4)
+Frontend:  1.1% lines (69/6189),  unchanged                     (frontend out of scope per Day 5 plan)
+Total tests: 143 → 143 entries; passing: 125 → 133; .todo: 18 → 10.
+```
+
+Remaining `.todo`s after Day 5 (10 across 5 files):
+- `tests/integration/agents.test.ts`: 0 (fully converted).
+- `tests/integration/onboarding.test.ts`: 1 — `verified=true after the inbound webhook lands the probe` (chained webhook flow; deferred to Day 6 — needs the Vapi-webhook → forwarding-probe stamp end-to-end test, harness ready).
+- `tests/integration/vapi-webhook.test.ts`: 1 — recording-upload queue assertion (queue stub is no-op `send()`; needs a `vi.fn` spy injected via `BuildAppOptions.envOverrides.WEBHOOK_DELIVERY_QUEUE`; trivial Day 6 task).
+- `tests/integration/knowledge-base.test.ts`: 8 — still blocked on R2 + Workers AI + Vectorize stand-ins (Day 6 explicit out-of-scope for Day 5 per plan).
+- `tests/integration/billing.test.ts`: 1 `describe.todo` billing portal (needs `organizations.stripe_customer_id` persisted by checkout webhook — backend code still has `TODO(database)` per Day 4).
+- `tests/integration/auth.test.ts`: 1 `describe.todo` OAuth (Google flow needs full provider mock; deferred to Day 6 if needed for ≥70%).
+
+Final `pnpm test` after Day 5: **17 test files passing + 1 skipped (knowledge-base, env-gated), 133 tests passing, 10 `.todo`, 0 failures.**
+
+### V1_BUILD_PLAN.md — Day 7 scope change (2026-05-01)
+Frontend ≥50% gate formally waived (WAIVE-WITH-DECISIONS-ENTRY). See `docs/DECISIONS.md` "Frontend ≥50% coverage gate waived for V1 launch." `tests/vitest.config.ts` updated: backend threshold active (70.6%), frontend key absent with waiver comment.
+
+**Day 7 is now: staging deploy prep.** Owner: devops agent (founder-assisted for credentials). Tasks: audit + replace all `REPLACE_WITH_*` wrangler.toml placeholders, run D1 migrations against staging, deploy `apps/api`, smoke `GET /health`. If smoke passes, Day 3 (Row 12 perf measurement) runs immediately after in the same session.
+
+**Awaiting founder credentials (Cloudflare account + resource IDs) to start Day 7.**
+
+### V1_BUILD_PLAN.md — Day 5 spec revised (calibration) — 2026-04-30
+Day 5 is "stand up third-party mocks first, then convert" — pure conversion was blocked on missing fetch-boundary mocks for ~12 of the 18 remaining `.todo`s. Revised V1_BUILD_PLAN.md Day 5 below. Frontend coverage deferred out of Day 5 entirely; gets its own re-planning conversation after Day 5 lands.
+
+### V1_BUILD_PLAN.md — Day 3 paused-by-design (not blocked) — 2026-04-30
+**Row 12 (perf measurement)** requires a deployed staging environment. Staging is not yet deployed: `apps/api/wrangler.toml` still has `REPLACE_WITH_*_ID` placeholders (lines 16, 129, 196, 286); five Phase 1 deploy checkboxes (PROGRESS.md:88-94) remain unchecked. Per founder decision this turn, Day 3 is **reordered to run after Day 7** alongside the staging deploy as one contiguous block. Days 4–7 (Row 11 coverage — vitest runs locally) proceed first. V1_BUILD_PLAN.md updated to reflect the reorder. Founder is handling third-party credentials (Vapi/Stripe/ElevenLabs/Twilio/Resend/Deepgram/Groq/Cloudflare) out-of-band.
+
 ## Phase 1 — Foundation (IN_PROGRESS — blocked on Day 3 deploy)
 
 ### Day 1 — Infra + schema scaffold (COMPLETE)
@@ -394,6 +538,35 @@ All 5 workspaces typecheck pass; 112 tests still pass.
 - [x] `docs/KNOWN_ISSUES.md` (customer-facing) — what's V1.1 (OpenTable/Resy/Google Calendar/Slack/POS, multi-location, SMS verification, CSV export, voice clone end-to-end, SMS sender, live preview), what's never (outbound, non-English, non-US, mobile native, white-label). Includes "support@" pointer for anything not listed
 - [x] `docs/INTERNAL_KNOWN_ISSUES.md` (founder-only) — architectural debt (custom session manager vs Better Auth, hand-rolled UI vs shadcn, REST-only vs tRPC, regex SQL test harness), operational gotchas (dashboard 200-calls limit, recording retention sweeper, forwarding-probe timeout, account-deletion hard-purge incomplete, Vapi event-id dedup quirk, Better Auth peer-dep warnings), test gaps (.todo agents/calls/kb integration, .skip e2e, coverage thresholds disabled), what NOT to promise customers, on-call runbook, migration emergency runbook, dependencies to monitor
 - [x] All 5 workspaces typecheck pass; 112 tests still pass
+
+---
+
+### V1_BUILD_PLAN.md — Day 6 (2026-05-01) — COMPLETE
+**Row 11 part 3: backend coverage to ≥70%.** Owner: QA Agent.
+
+Coverage before Day 6: **54.8% lines (4139/7548)** — gap of −15.2 pts.
+
+New test files added:
+- `apps/api/src/lib/__tests__/authz.test.ts` (6 tests) — `requireRole` all paths: empty-list guard, 401 no role, 403 wrong role, happy paths
+- `apps/api/src/integrations/__tests__/twilio.test.ts` (10 tests) — `TwilioClient` search/purchase/release/lookup/sendSms/verifyWebhookSignature via msw
+- `apps/api/src/integrations/__tests__/deepgram.test.ts` (6 tests) — `DeepgramClient.transcribeFromUrl` success + 4 error paths (401, 500, non-JSON, missing alternatives) via msw
+- `apps/api/src/integrations/__tests__/elevenlabs.test.ts` (9 tests) — `listStockVoices`, `deleteClonedVoice`, `getVoiceMetadata`, `createClonedVoice` via msw
+- `apps/api/src/middleware/__tests__/admin-auth.test.ts` (9 tests) — fallback header, production rejects, dev/test JWT decode, exp validation, JWKS cache path, SERVICE_UNAVAILABLE on missing domain
+- `apps/api/src/middleware/__tests__/error-handler.test.ts` (7 tests) — `ApiError`, `HTTPException` (401/403/429/418), unhandled Error, non-Error throws
+- `apps/api/src/services/demo/__tests__/agents.test.ts` (14 tests) — `getDemoCatalog` all 6 verticals + precedence rules + empty catalog; `getDemoByVertical` all paths
+- `apps/api/src/services/phone_numbers/__tests__/logic.test.ts` (13 tests) — search/lookup/provision/release with DB stubs + msw Vapi/Twilio handlers
+- `apps/api/src/services/admin/__tests__/logic.test.ts` (20 tests) — `logAudit`, `listCustomers`, `getCustomer`, `startImpersonation`, voice-clone review, promo CRUD, `listFlaggedCalls`, `searchAuditLogs` with cursor
+- `apps/api/src/services/knowledge_base/__tests__/logic.test.ts` (expanded to 21 tests) — added `assertBusinessInOrg`, `listDocs`, `getDoc`, `deleteDoc`, `uploadDoc`, `runIndexing` (missing-R2, empty-text, text-with-embeddings, unsupported-type), `searchKnowledgeBase`
+
+Bug fixes: `apps/api/src/services/calls/__tests__/logic.test.ts` — fixed `FROM calls WHERE id` SQL match (newline before WHERE), fixed `statusCode` → `status` on `ApiError`.
+
+Coverage after Day 6: **70.6% lines (5283/7482)** — threshold ≥70% re-enabled in `tests/vitest.config.ts`.
+
+Total tests: **315 passing** | 10 todo | 0 failures.
+
+Tier 1 decisions: msw servers in integration-client tests use `{ onUnhandledRequest: "error" }` and are scoped per-file (not the global server) to avoid cross-test handler bleed; each uses `beforeAll/afterEach/afterAll` lifecycle following existing pattern.
+
+---
 
 ## Pre-launch punch list COMPLETE
 

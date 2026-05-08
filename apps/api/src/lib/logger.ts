@@ -49,10 +49,11 @@ function emit(level: LogLevel, message: string, fields: LogFields): void {
       console.warn(line);
       break;
     case "debug":
-      console.debug(line);
-      break;
     default:
-      console.log(line);
+      // ESLint `no-console` only permits warn/error/info; debug + default
+      // (info-level) both ride console.info. Cloudflare Logpush still
+      // discriminates by the `level` field in the JSON payload.
+      console.info(line);
   }
 }
 

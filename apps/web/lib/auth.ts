@@ -25,12 +25,15 @@ import { ApiError, apiGet, apiPost } from "./api-client";
 
 const BASE = "/v1/auth";
 
-export async function signup(input: SignupInput): Promise<{ data: Session }> {
-  return apiPost<{ data: Session }>(`${BASE}/signup`, input);
+// Note: api-client unwraps the `{ data: T }` envelope at the boundary, so
+// these functions return `T` directly.
+
+export async function signup(input: SignupInput): Promise<Session> {
+  return apiPost<Session>(`${BASE}/signup`, input);
 }
 
-export async function login(input: LoginInput): Promise<{ data: Session }> {
-  return apiPost<{ data: Session }>(`${BASE}/login`, input);
+export async function login(input: LoginInput): Promise<Session> {
+  return apiPost<Session>(`${BASE}/login`, input);
 }
 
 export async function logout(): Promise<void> {
@@ -63,10 +66,10 @@ export async function getSession(options?: {
   signal?: AbortSignal;
 }): Promise<Session | null> {
   try {
-    const res = await apiGet<{ data: Session | null }>(`${BASE}/session`, {
+    const res = await apiGet<Session | null>(`${BASE}/session`, {
       signal: options?.signal,
     });
-    return res.data ?? null;
+    return res ?? null;
   } catch (err) {
     if (err instanceof ApiError && err.status === 401) {
       return null;

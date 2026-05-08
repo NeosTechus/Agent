@@ -173,7 +173,7 @@ export default function DashboardHomePage() {
       todayQuery.error instanceof ApiError ? todayQuery.error : null;
     return (
       <div className="space-y-6">
-        <Header />
+        <Header planTier={subscriptionQuery.data?.plan_tier ?? null} />
         <ErrorState
           title="Couldn't load today's data"
           description={
@@ -191,7 +191,7 @@ export default function DashboardHomePage() {
   if (isInitialLoading) {
     return (
       <div className="space-y-6">
-        <Header />
+        <Header planTier={subscriptionQuery.data?.plan_tier ?? null} />
         <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
           <StatSkeleton />
           <StatSkeleton />
@@ -227,7 +227,7 @@ export default function DashboardHomePage() {
       : null;
 
   // Plan usage
-  const sub = subscriptionQuery.data?.data ?? null;
+  const sub = subscriptionQuery.data ?? null;
   const plan = sub
     ? (PLANS.find((p) => p.id === (sub.plan_tier as PlanId)) ?? null)
     : null;
@@ -236,7 +236,7 @@ export default function DashboardHomePage() {
     usageQuery.isError &&
     usageQuery.error instanceof ApiError &&
     usageQuery.error.status === 404;
-  const usageData = usageQuery.data?.data?.usage ?? null;
+  const usageData = usageQuery.data?.usage ?? null;
   const minutesUsed = usageData?.minutes_used ?? null;
   const minutesIncluded =
     usageData?.minutes_included ?? plan?.includedMinutes ?? null;
@@ -247,7 +247,7 @@ export default function DashboardHomePage() {
   if (isBrandNew) {
     return (
       <div className="space-y-6">
-        <Header />
+        <Header planTier={subscriptionQuery.data?.plan_tier ?? null} />
         <EmptyState
           title="Welcome — let's get your agent live"
           description="Once your agent answers its first call, you'll see live volume, outcomes, and quality scores here. The fastest way to see the dashboard come to life is to place a quick test call."
@@ -329,13 +329,42 @@ export default function DashboardHomePage() {
   );
 }
 
-function Header() {
+function Header({ planTier }: { planTier?: string | null }) {
   return (
-    <div>
-      <h1 className="text-2xl font-semibold text-ink">Today</h1>
-      <p className="mt-1 text-sm text-ink-muted">
-        A snapshot of your AI receptionist&apos;s activity.
-      </p>
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+      <div>
+        <h1 className="text-2xl font-semibold text-ink">Today</h1>
+        <p className="mt-1 text-sm text-ink-muted">
+          A snapshot of your AI receptionist&apos;s activity.
+        </p>
+      </div>
+      {planTier ? <PlanBadgeWithLink tier={planTier} /> : null}
     </div>
+  );
+}
+
+function PlanBadgeWithLink({ tier }: { tier: string }) {
+  const lower = tier.toLowerCase();
+  const styles =
+    lower === "pro"
+      ? "bg-indigo-50 text-indigo-700 border-indigo-200"
+      : lower === "growth"
+      ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+      : lower === "starter"
+      ? "bg-sky-50 text-sky-700 border-sky-200"
+      : "bg-slate-50 text-slate-600 border-slate-200";
+  const display =
+    lower === "free" || !tier
+      ? "Free"
+      : tier.charAt(0).toUpperCase() + tier.slice(1);
+  return (
+    <Link
+      href="/billing"
+      className={`inline-flex h-8 items-center gap-2 rounded-full border px-3 text-xs font-medium transition-opacity hover:opacity-80 ${styles}`}
+    >
+      <span className="opacity-70">Plan</span>
+      <span className="font-semibold">{display}</span>
+      <span aria-hidden="true">→</span>
+    </Link>
   );
 }

@@ -40,6 +40,10 @@ import {
 } from "./queues/quality-grading";
 import { runScheduledDeletions } from "./services/account/logic";
 import { handleEmailSend, type EmailMessage } from "./queues/email-send";
+import {
+  handleUsageAggregation,
+  type UsageAggregationMessage,
+} from "./queues/usage-aggregation";
 
 const app = new Hono<AppEnv>();
 
@@ -82,6 +86,7 @@ type QueueMessage =
   | DunningMessage
   | QualityGradeMessage
   | EmailMessage
+  | UsageAggregationMessage
   | { kind: string };
 
 interface MessageBatch<T> {
@@ -102,10 +107,22 @@ export default {
     if (event.cron === "0 * * * *") {
       await generateWeeklyDigest(env);
     }
-    // Daily 06:00 UTC — purge orgs whose deletion grace has elapsed.
+    // Daily 06:00 UTC — purge orgs whose deletion grace has elapsed and
+    // enqueue a usage-aggregation period-close sweep so Stripe meter
+    // events are reported once per day.
     if (event.cron === "0 6 * * *") {
       const result = await runScheduledDeletions(env);
       log.info("cron.deletion_purge", result);
+      try {
+        await env.USAGE_AGGREGATION_QUEUE.send({
+          kind: "usage_aggregation_period_close",
+        });
+        log.info("cron.usage_aggregation_enqueued");
+      } catch (err) {
+        log.error("cron.usage_aggregation_enqueue_failed", {
+          error: (err as Error).message,
+        });
+      }
     }
   },
   async queue(batch: MessageBatch<QueueMessage>, env: Bindings): Promise<void> {
@@ -128,6 +145,12 @@ export default {
           msg.ack();
         } else if (msg.body.kind === "quality_grade") {
           await runQualityGrade(env, msg.body as QualityGradeMessage);
+          msg.ack();
+        } else if (
+          msg.body.kind === "usage_aggregation_period_close" ||
+          msg.body.kind === "usage_aggregation_org"
+        ) {
+          await handleUsageAggregation(msg.body as UsageAggregationMessage, env);
           msg.ack();
         } else if (
           msg.body.kind === "verify_email" ||

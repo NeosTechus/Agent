@@ -43,6 +43,33 @@ export interface AdminCallRow {
   created_at: number;
 }
 
+export type HealthComponentName =
+  | "api"
+  | "database"
+  | "sessions"
+  | "storage"
+  | "stripe"
+  | "vapi"
+  | "twilio"
+  | "elevenlabs";
+
+export interface HealthComponent {
+  ok: boolean;
+  latency_ms: number;
+  error?: string;
+}
+
+export interface HealthResponse {
+  status: "operational" | "degraded";
+  components: Record<HealthComponentName, HealthComponent>;
+  total_check_ms: number;
+  recent_errors_5min: number;
+  recent_calls_5min: number;
+  recent_signups_24h: number;
+  active_subscriptions: number;
+  queues: null;
+}
+
 export interface AdminAgent {
   id: string;
   organization_id: string;
@@ -143,6 +170,9 @@ export const adminApi = {
   },
   flaggedCalls: () =>
     request<{ calls: Array<Record<string, unknown>> }>("/v1/admin/flagged-calls"),
+  ops: {
+    health: () => request<HealthResponse>("/v1/admin/ops/health"),
+  },
   auditLogs: (params: Record<string, string | number | undefined>) => {
     const sp = new URLSearchParams();
     for (const [k, v] of Object.entries(params)) {

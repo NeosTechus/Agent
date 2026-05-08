@@ -33,5 +33,11 @@ jobs:
       - name: Test
         run: pnpm test
 
+      # Enforces the backend ≥70% line-coverage gate from
+      # tests/vitest.config.ts. Frontend gate is intentionally absent
+      # (see DECISIONS.md "Frontend ≥50% coverage gate waived for V1 launch").
+      - name: Coverage gate
+        run: pnpm test:coverage
+
       - name: Build
         run: pnpm build

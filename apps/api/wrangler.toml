@@ -14,6 +14,7 @@ compatibility_flags = ["nodejs_compat"]
 binding = "DB"
 database_name = "app-local"
 database_id = "REPLACE_WITH_LOCAL_D1_ID"
+migrations_dir = "../../packages/db/migrations"
 
 [[r2_buckets]]
 binding = "RECORDINGS"
@@ -126,7 +127,8 @@ name = "api-preview"
 [[env.preview.d1_databases]]
 binding = "DB"
 database_name = "app-staging"
-database_id = "REPLACE_WITH_STAGING_D1_ID"
+database_id = "f340eac2-dc0f-41bb-89f9-aaa9cb521dec"
+migrations_dir = "../../packages/db/migrations"
 
 [[env.preview.r2_buckets]]
 binding = "RECORDINGS"
@@ -146,19 +148,19 @@ bucket_name = "staging-consent-recordings"
 
 [[env.preview.kv_namespaces]]
 binding = "SESSIONS"
-id = "REPLACE_WITH_STAGING_KV_SESSIONS_ID"
+id = "9a083b58947f45d8bbbd8774693d2ae2"
 
 [[env.preview.kv_namespaces]]
 binding = "RATE_LIMITS"
-id = "REPLACE_WITH_STAGING_KV_RATE_LIMITS_ID"
+id = "86af7321ee7d47bd826a4505e4e2b57d"
 
 [[env.preview.kv_namespaces]]
 binding = "WEBHOOK_DEDUP"
-id = "REPLACE_WITH_STAGING_KV_WEBHOOK_DEDUP_ID"
+id = "e4b552ad3cf34c62a0ae027c145c889b"
 
 [[env.preview.kv_namespaces]]
 binding = "FEATURE_FLAGS"
-id = "REPLACE_WITH_STAGING_KV_FEATURE_FLAGS_ID"
+id = "2508599372564405b69b557dcc127a63"
 
 [[env.preview.queues.producers]]
 binding = "WEBHOOK_DELIVERY_QUEUE"
@@ -193,7 +195,8 @@ name = "api-staging"
 [[env.staging.d1_databases]]
 binding = "DB"
 database_name = "app-staging"
-database_id = "REPLACE_WITH_STAGING_D1_ID"
+database_id = "f340eac2-dc0f-41bb-89f9-aaa9cb521dec"
+migrations_dir = "../../packages/db/migrations"
 
 [[env.staging.r2_buckets]]
 binding = "RECORDINGS"
@@ -213,19 +216,19 @@ bucket_name = "staging-consent-recordings"
 
 [[env.staging.kv_namespaces]]
 binding = "SESSIONS"
-id = "REPLACE_WITH_STAGING_KV_SESSIONS_ID"
+id = "9a083b58947f45d8bbbd8774693d2ae2"
 
 [[env.staging.kv_namespaces]]
 binding = "RATE_LIMITS"
-id = "REPLACE_WITH_STAGING_KV_RATE_LIMITS_ID"
+id = "86af7321ee7d47bd826a4505e4e2b57d"
 
 [[env.staging.kv_namespaces]]
 binding = "WEBHOOK_DEDUP"
-id = "REPLACE_WITH_STAGING_KV_WEBHOOK_DEDUP_ID"
+id = "e4b552ad3cf34c62a0ae027c145c889b"
 
 [[env.staging.kv_namespaces]]
 binding = "FEATURE_FLAGS"
-id = "REPLACE_WITH_STAGING_KV_FEATURE_FLAGS_ID"
+id = "2508599372564405b69b557dcc127a63"
 
 [[env.staging.queues.producers]]
 binding = "WEBHOOK_DELIVERY_QUEUE"

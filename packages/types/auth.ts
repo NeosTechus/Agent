@@ -89,6 +89,8 @@ export const sessionSchema = z.object({
     email: z.string(),
     name: z.string().nullable(),
     email_verified_at: z.number().nullable(),
+    /** 1 = founder/staff with access to /admin/* routes. Default 0 for customers. */
+    is_admin: z.union([z.literal(0), z.literal(1)]).default(0),
   }),
   organization: z.object({
     id: z.string(),

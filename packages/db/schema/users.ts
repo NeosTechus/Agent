@@ -10,6 +10,8 @@ export const users = sqliteTable(
     stripeCustomerId: text('stripe_customer_id').unique(),
     planTier: text('plan_tier'),
     creditsRemaining: integer('credits_remaining').notNull().default(0),
+    /** 1 = founder/staff with access to /admin/* routes. Default 0 for all customer users. */
+    isAdmin: integer('is_admin').notNull().default(0),
     /**
      * Self-describing hash, e.g. `pbkdf2$sha256$600000$<salt>$<hash>`.
      * NOT NULL with a `DEFAULT ''` so the column is addable on the (currently
@@ -33,6 +35,7 @@ export const users = sqliteTable(
       t.emailVerificationToken,
     ),
     passwordResetTokenIdx: index('idx_users_password_reset_token').on(t.passwordResetToken),
+    isAdminIdx: index('idx_users_is_admin').on(t.isAdmin),
   }),
 );
 

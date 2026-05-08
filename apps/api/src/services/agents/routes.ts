@@ -3,6 +3,7 @@
 
 import { Hono } from "hono";
 import type { AppEnv } from "../../types";
+import { requireActiveSubscription } from "../../middleware/require-subscription";
 import {
   createAgentHandler,
   getAgentHandler,
@@ -23,7 +24,9 @@ export const agentRoutes = new Hono<AppEnv>()
   .post("/", createAgentHandler)
   .get("/:id", getAgentHandler)
   .patch("/:id", updateAgentHandler)
-  .post("/:id/publish", publishAgentHandler)
+  // Publish, test-call: cost-incurring (Vapi mint / outbound minutes).
+  // Requires active subscription per DECISIONS.md.
+  .post("/:id/publish", requireActiveSubscription(), publishAgentHandler)
   .post("/:id/rollback", rollbackAgentHandler)
   .get("/:id/versions", listVersionsHandler)
-  .post("/:id/test-call", placeTestCallHandler);
+  .post("/:id/test-call", requireActiveSubscription(), placeTestCallHandler);

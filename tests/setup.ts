@@ -4,7 +4,7 @@
 // per test file (not per test). Per-test reset hooks live below.
 
 import { afterAll, afterEach, beforeAll, beforeEach } from 'vitest';
-import { server } from './mocks/server';
+import { server, resetStripeStore, resetVapiStore, resetGroqStore, resetResendStore } from './mocks/server';
 import { resetFakerSeed } from './factories/seed';
 
 // ---------------------------------------------------------------------------
@@ -19,6 +19,10 @@ beforeAll(() => {
 
 afterEach(() => {
   server.resetHandlers();
+  resetStripeStore();
+  resetVapiStore();
+  resetGroqStore();
+  resetResendStore();
   // Reset faker seed so test ordering doesn't change generated values.
   resetFakerSeed();
 });

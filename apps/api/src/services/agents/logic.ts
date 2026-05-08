@@ -4,11 +4,19 @@
 //   - Pure functions where possible
 //   - Direct D1 access via `env.DB.prepare(...)` until Drizzle wiring lands
 //
-// Vapi assistant lifecycle:
-//   create() — buildFinalSystemPrompt(owner) -> vapi.createAssistant() -> persist row
-//   update() — write `agent_versions` row (DRAFT) -> patch local row, NOT Vapi
-//   publish() — push current draft to Vapi, mark version published
+// Vapi assistant lifecycle (deferred-create model — see DECISIONS.md):
+//   create() — persist row with vapi_assistant_id = NULL (no external call)
+//   update() — patch local row, bump status back to draft, NOT Vapi
+//   publish() — first publish mints the Vapi assistant; subsequent publishes
+//               call vapi.updateAssistant on the existing id. Then marks the
+//               agent_versions row published.
 //   rollback(version_id) — push that version's content to Vapi, mark it published
+//
+// Why deferred-create: agent creation is gated behind signup + onboarding
+// before any subscription exists. Calling Vapi during create wastes provider
+// quota for users who never publish. The publish endpoint additionally sits
+// behind requireActiveSubscription() so the cost-incurring step only runs
+// for paying customers.
 
 import { ApiError } from "../../lib/errors";
 import { buildFinalSystemPrompt } from "../../lib/safety-prompt";
@@ -53,8 +61,8 @@ export function listStockVoices(): Voice[] {
     id: v.voiceId,
     name: v.name,
     description: v.description,
-    sampleUrl: v.sampleUrl,
-  }));
+    sample_url: v.sampleUrl,
+  })) as Voice[];
 }
 
 // ---------------------------------------------------------------------------
@@ -229,24 +237,45 @@ export async function createAgent(
 ): Promise<Agent> {
   const id = newId("agt");
   const ts = now();
-  const finalPrompt = buildFinalSystemPrompt(input.system_prompt);
 
-  // Push to Vapi first; if that fails we never persist a half-broken row.
-  const vapi = requireVapi(env);
-  const assistant = await vapi.createAssistant(
-    {
-      name: input.name,
-      systemPrompt: finalPrompt,
-      firstMessage: input.first_message,
-      voiceId: input.voice_id,
-      model: { provider: "groq", model: "llama-3.3-70b-versatile", temperature: 0.3 },
-      transcriber: { provider: "deepgram", model: "nova-3", language: "en-US" },
-      voice: { provider: "11labs", voiceId: input.voice_id, stability: 0.5, similarityBoost: 0.75 },
-      capabilities: toVapiCapabilities(input.capabilities),
-    },
-    `agent-create-${id}`,
-  );
+  // Resolve business_id. If the caller didn't pass one, try the org's first
+  // business; if the org has none yet (user skipped or hasn't completed
+  // onboarding), auto-create a placeholder using the agent name. The full
+  // business profile (vertical, hours, address) gets filled in later via the
+  // onboarding wizard or settings page.
+  let businessId = input.business_id ?? null;
+  if (!businessId) {
+    const existing = await env.DB.prepare(
+      `SELECT id FROM businesses WHERE organization_id = ? AND deleted_at IS NULL ORDER BY created_at ASC LIMIT 1`,
+    )
+      .bind(organizationId)
+      .first<{ id: string }>();
+    if (existing) {
+      businessId = existing.id;
+    } else {
+      businessId = newId("biz");
+      await env.DB.prepare(
+        `INSERT INTO businesses (
+           id, organization_id, business_name, vertical, hours_json,
+           created_at, updated_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      )
+        .bind(
+          businessId,
+          organizationId,
+          input.name,
+          input.vertical,
+          "{}",
+          ts,
+          ts,
+        )
+        .run();
+    }
+  }
 
+  // Deferred-create: do NOT call Vapi here. The Vapi assistant is minted on
+  // the first successful publish (which sits behind requireActiveSubscription).
+  // Persist with vapi_assistant_id = NULL; status stays 'draft'.
   await env.DB.prepare(
     `INSERT INTO agents (
        id, organization_id, business_id, name, type, system_prompt, first_message,
@@ -257,14 +286,14 @@ export async function createAgent(
     .bind(
       id,
       organizationId,
-      input.business_id ?? null,
+      businessId,
       input.name,
       "inbound",
       input.system_prompt,
       input.first_message,
       input.voice_id,
       JSON.stringify(input.capabilities),
-      assistant.id,
+      null,
       "draft",
       1,
       ts,
@@ -377,8 +406,8 @@ export async function publishAgent(
       `INSERT INTO agent_versions (
          id, agent_id, system_prompt, first_message, voice_id, capabilities_json,
          version, published_at, published_by_user_id, review_state, review_reason,
-         created_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, 'pending_admin_review', ?, ?)`,
+         created_at, updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, 'pending_admin_review', ?, ?, ?)`,
     )
       .bind(
         versionId,
@@ -390,6 +419,7 @@ export async function publishAgent(
         agent.version + 1,
         userId,
         judgement.evidence ?? `Rule affected: ${judgement.rule_affected ?? "unknown"}`,
+        ts,
         ts,
       )
       .run();
@@ -426,31 +456,53 @@ export async function publishAgent(
 
   // Safe — push to Vapi and write a published version.
   const vapi = requireVapi(env);
-  if (!agent.vapi_assistant_id) {
-    throw ApiError.internal("Agent missing Vapi assistant id");
-  }
   const finalPrompt = buildFinalSystemPrompt(agent.system_prompt);
-  await vapi.updateAssistant(
-    agent.vapi_assistant_id,
-    {
-      name: agent.name,
-      systemPrompt: finalPrompt,
-      firstMessage: agent.first_message,
-      model: { provider: "groq", model: "llama-3.3-70b-versatile", temperature: 0.3 },
-      transcriber: { provider: "deepgram", model: "nova-3", language: "en-US" },
-      voice: { provider: "11labs", voiceId: agent.voice_id, stability: 0.5, similarityBoost: 0.75 },
-      capabilities: toVapiCapabilities(agent.capabilities),
+  const vapiPayload = {
+    name: agent.name,
+    systemPrompt: finalPrompt,
+    firstMessage: agent.first_message,
+    voiceId: agent.voice_id,
+    model: { provider: "groq" as const, model: "llama-3.3-70b-versatile", temperature: 0.3 },
+    transcriber: { provider: "deepgram" as const, model: "nova-3", language: "en-US" },
+    voice: {
+      provider: "11labs" as const,
+      voiceId: agent.voice_id,
+      stability: 0.5,
+      similarityBoost: 0.75,
     },
-    `agent-publish-${agentId}-${agent.version + 1}`,
-  );
+    capabilities: toVapiCapabilities(agent.capabilities),
+  };
+
+  // Deferred-create lifecycle: first publish mints the Vapi assistant.
+  // Subsequent publishes update the existing one. Either way we end up with
+  // a valid vapi_assistant_id on the row.
+  let vapiAssistantId = agent.vapi_assistant_id;
+  if (!vapiAssistantId) {
+    const created = await vapi.createAssistant(
+      vapiPayload,
+      `agent-create-${agentId}-v${agent.version + 1}`,
+    );
+    vapiAssistantId = created.id;
+    await env.DB.prepare(
+      `UPDATE agents SET vapi_assistant_id = ?, updated_at = ? WHERE id = ?`,
+    )
+      .bind(vapiAssistantId, ts, agentId)
+      .run();
+  } else {
+    await vapi.updateAssistant(
+      vapiAssistantId,
+      vapiPayload,
+      `agent-publish-${agentId}-${agent.version + 1}`,
+    );
+  }
 
   const versionId = newId("agv");
   await env.DB.batch([
     env.DB.prepare(
       `INSERT INTO agent_versions (
          id, agent_id, system_prompt, first_message, voice_id, capabilities_json,
-         version, published_at, published_by_user_id, review_state, created_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'published', ?)`,
+         version, published_at, published_by_user_id, review_state, created_at, updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'published', ?, ?)`,
     ).bind(
       versionId,
       agentId,
@@ -461,6 +513,7 @@ export async function publishAgent(
       agent.version + 1,
       ts,
       userId,
+      ts,
       ts,
     ),
     env.DB.prepare(
@@ -535,8 +588,8 @@ export async function rollbackAgent(
   await env.DB.prepare(
     `INSERT INTO agent_versions (
        id, agent_id, system_prompt, first_message, voice_id, capabilities_json,
-       version, published_at, published_by_user_id, created_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       version, published_at, published_by_user_id, created_at, updated_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   )
     .bind(
       newVersionId,
@@ -548,6 +601,7 @@ export async function rollbackAgent(
       agent.version + 1,
       ts,
       userId,
+      ts,
       ts,
     )
     .run();

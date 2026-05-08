@@ -51,9 +51,9 @@ pnpm test:e2e                   # Playwright (requires dev servers)
 ## Architecture in one screen
 
 - **Customer flow:** `web` → Better-Auth-style session in `SESSIONS` KV → `api` Worker → D1 tables → Vapi for live calls → R2 for recordings → Vectorize for KB embeddings.
-- **Admin flow:** `admin` (separate subdomain, Cloudflare Access SSO) → `api/v1/admin/*` (admin JWT middleware) → audit log on every mutation.
+- **Admin flow:** `admin` (separate subdomain, Cloudflare Access SSO) → `api/v1/admin/`* (admin JWT middleware) → audit log on every mutation.
 - **Async work:** Cloudflare Queues — `webhook-delivery` (outbound + DLQ), `kb-indexing` (embeddings), `call-grading` (5% LLM-as-judge sample), `email-send` (Resend), plus Vapi recording uploads.
-- **Cron triggers:** `0 * * * *` hourly digest scan (picks orgs at local Mon 07:00), `0 6 * * *` deletion sweeper.
+- **Cron triggers:** `0 * * * `* hourly digest scan (picks orgs at local Mon 07:00), `0 6 * * *` deletion sweeper.
 
 ## V1 acceptance criteria status (PRD 9.10)
 
@@ -66,3 +66,4 @@ Only nice-to-haves remain:
 - Integration tests for agents/calls/knowledge-base services (their upsert + MAX/COALESCE SQL is significantly harder to recognize in the harness; pure-logic unit tests cover the meat)
 - Forwarding-probe integration test (`.todo` — needs a Vapi `createOutboundCall` stub)
 - React-email/mjml migration for email templates (currently inline plain-HTML — works fine)
+

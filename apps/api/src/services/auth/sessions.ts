@@ -92,11 +92,17 @@ export function buildSessionCookie(
   token: string,
   opts: { secure: boolean; maxAgeSeconds?: number },
 ): string {
+  // SameSite=Lax (not Strict) so the cookie is delivered on top-level
+  // navigations from third-party redirects (the OAuth flow chains
+  // Google → /v1/auth/oauth/google/callback → /onboarding, which is
+  // cross-site at the Google → us hop). Strict was silently dropping
+  // sessions there. CSRF mitigation continues via Origin header checks
+  // on state-changing routes.
   const parts = [
     `${SESSION_COOKIE_NAME}=${token}`,
     "Path=/",
     "HttpOnly",
-    "SameSite=Strict",
+    "SameSite=Lax",
     `Max-Age=${opts.maxAgeSeconds ?? SESSION_TTL_SECONDS}`,
   ];
   if (opts.secure) parts.push("Secure");
@@ -108,7 +114,7 @@ export function buildClearSessionCookie(secure: boolean): string {
     `${SESSION_COOKIE_NAME}=`,
     "Path=/",
     "HttpOnly",
-    "SameSite=Strict",
+    "SameSite=Lax",
     "Max-Age=0",
   ];
   if (secure) parts.push("Secure");
