@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Suspense } from "react";
 import { MarketingHeader } from "@/components/layout/MarketingHeader";
 
 export default function MarketingLayout({
@@ -9,7 +10,9 @@ export default function MarketingLayout({
   return (
     <div className="flex min-h-screen flex-col bg-[#080A10] text-white">
       <MarketingHeader />
-      <main className="flex-1">{children}</main>
+      <main className="flex-1">
+        <Suspense fallback={null}>{children}</Suspense>
+      </main>
       <footer className="border-t border-white/10 bg-[#080A10]">
         <div className="mx-auto flex max-w-content flex-col items-start justify-between gap-4 px-6 py-10 text-sm text-slate-400 md:flex-row md:items-center">
           <p>© {new Date().getFullYear()} Agent P. All rights reserved.</p>

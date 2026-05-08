@@ -1,6 +1,9 @@
 import Link from "next/link";
+import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { getServerSession } from "@/lib/server-auth";
+
+export const dynamic = "force-dynamic";
 
 /**
  * Minimal chrome for the post-signup checkout flow (PRD 4.1, 5.12).
@@ -44,7 +47,9 @@ export default async function CheckoutLayout({
         </div>
       </header>
       <main className="flex-1 px-4 py-10 md:px-6 md:py-16">
-        <div className="mx-auto w-full max-w-3xl">{children}</div>
+        <div className="mx-auto w-full max-w-3xl">
+          <Suspense fallback={null}>{children}</Suspense>
+        </div>
       </main>
     </div>
   );

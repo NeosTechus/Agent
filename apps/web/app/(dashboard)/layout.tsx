@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import {
   DashboardMobileNav,
@@ -32,7 +33,9 @@ export default async function DashboardLayout({
         </header>
         <DashboardMobileNav />
         <main className="flex-1 px-4 py-8 md:px-8 md:py-10">
-          <div className="mx-auto max-w-content">{children}</div>
+          <div className="mx-auto max-w-content">
+            <Suspense fallback={null}>{children}</Suspense>
+          </div>
         </main>
       </div>
     </div>

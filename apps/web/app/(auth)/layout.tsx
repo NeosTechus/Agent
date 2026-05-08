@@ -1,8 +1,13 @@
 import Link from "next/link";
+import { Suspense } from "react";
 
 /**
  * Centered card layout for auth screens (PRD 7.4.3 — Stripe-inspired).
  * Light Slate-50 background, max-w-md card, logo/wordmark on top.
+ *
+ * Children are wrapped in <Suspense> because most auth pages call
+ * useSearchParams() (signup, verify-email, reset-password, accept-invite)
+ * and Next 15 requires a Suspense boundary above any such hook.
  */
 export default function AuthLayout({
   children,
@@ -21,7 +26,9 @@ export default function AuthLayout({
           </Link>
         </div>
         <div className="rounded-lg border border-border bg-white p-6 shadow-sm sm:p-8">
-          {children}
+          <Suspense fallback={<div className="h-32" aria-hidden="true" />}>
+            {children}
+          </Suspense>
         </div>
         <p className="mt-6 text-center text-xs text-ink-subtle">
           By continuing, you agree to our{" "}
