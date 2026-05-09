@@ -46,3 +46,4 @@ coverage/
 
 # Reference repos cloned for gap analysis (not part of Agent P source)
 reference-repos/
+.vercel
