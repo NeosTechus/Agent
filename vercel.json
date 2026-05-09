@@ -1,7 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
-  "buildCommand": "npm install --legacy-peer-deps --no-fund --no-audit && npm run build --workspace=@app/web",
-  "outputDirectory": "apps/web/.next",
-  "installCommand": "echo skip — install runs in build to avoid vercel-default install"
+  "installCommand": "npm install --legacy-peer-deps --no-fund --no-audit",
+  "buildCommand": "npm run build --workspace=@app/web",
+  "outputDirectory": "apps/web/.next"
 }
