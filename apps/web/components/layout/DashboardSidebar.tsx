@@ -27,13 +27,13 @@ export const DASHBOARD_NAV: NavItem[] = [
 
 /** Admin sub-nav — only rendered when `session.user.is_admin === true`. */
 const ADMIN_NAV: NavItem[] = [
-  { href: "/dashboard/admin/health", label: "Health" },
-  { href: "/dashboard/admin/customers", label: "Customers" },
-  { href: "/dashboard/admin/prompt-reviews", label: "Prompt reviews" },
-  { href: "/dashboard/admin/voice-clones", label: "Voice clones" },
-  { href: "/dashboard/admin/flagged-calls", label: "Flagged calls" },
-  { href: "/dashboard/admin/promos", label: "Promo codes" },
-  { href: "/dashboard/admin/audit-logs", label: "Audit logs" },
+  { href: "/admin/health", label: "Health" },
+  { href: "/admin/customers", label: "Customers" },
+  { href: "/admin/prompt-reviews", label: "Prompt reviews" },
+  { href: "/admin/voice-clones", label: "Voice clones" },
+  { href: "/admin/flagged-calls", label: "Flagged calls" },
+  { href: "/admin/promos", label: "Promo codes" },
+  { href: "/admin/audit-logs", label: "Audit logs" },
 ];
 
 /**

@@ -5,20 +5,20 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 
 export const ADMIN_NAV: { href: string; label: string }[] = [
-  { href: "/dashboard/admin/health", label: "Health" },
-  { href: "/dashboard/admin/customers", label: "Customers" },
-  { href: "/dashboard/admin/prompt-reviews", label: "Prompt reviews" },
-  { href: "/dashboard/admin/voice-clones", label: "Voice clones" },
-  { href: "/dashboard/admin/flagged-calls", label: "Flagged calls" },
-  { href: "/dashboard/admin/promos", label: "Promo codes" },
-  { href: "/dashboard/admin/audit-logs", label: "Audit logs" },
+  { href: "/admin/health", label: "Health" },
+  { href: "/admin/customers", label: "Customers" },
+  { href: "/admin/prompt-reviews", label: "Prompt reviews" },
+  { href: "/admin/voice-clones", label: "Voice clones" },
+  { href: "/admin/flagged-calls", label: "Flagged calls" },
+  { href: "/admin/promos", label: "Promo codes" },
+  { href: "/admin/audit-logs", label: "Audit logs" },
 ];
 
 /**
  * Horizontal sub-nav rendered inside the admin layout (the parent dashboard
  * sidebar already provides the top-level navigation). Active item is
  * highlighted using path prefix matching so deep links (e.g.
- * /dashboard/admin/customers/[id]) keep "Customers" lit.
+ * /admin/customers/[id]) keep "Customers" lit.
  */
 export function AdminNav() {
   const pathname = usePathname();

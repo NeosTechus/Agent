@@ -88,7 +88,7 @@ export default function CustomersPage() {
                   </td>
                   <td className="px-4 py-2 text-right">
                     <Link
-                      href={`/dashboard/admin/customers/${r.organization_id}`}
+                      href={`/admin/customers/${r.organization_id}`}
                       className="text-primary hover:underline"
                     >
                       Open

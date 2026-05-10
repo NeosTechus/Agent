@@ -3,7 +3,7 @@
  *
  * Originally lived under apps/admin/lib/api.ts when admin was a separate
  * subdomain (Cloudflare Access protected). Now that admin pages live under
- * /dashboard/admin in the customer app, all calls go through the regular
+ * /admin in the customer app, all calls go through the regular
  * session cookie + the customer's `is_admin` flag enforced by the API.
  *
  * Uses the shared `apiGet` / `apiPost` helpers so the standard
