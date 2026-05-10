@@ -47,10 +47,9 @@ function useIsAdmin(): boolean {
     queryFn: () => getSession(),
     staleTime: 30_000,
   });
-  return (
-    (sessionQuery.data?.user as unknown as { is_admin?: boolean })?.is_admin ===
-    true
-  );
+  // SQLite returns INTEGER 0/1 for is_admin; treat truthy as admin.
+  return !!(sessionQuery.data?.user as unknown as { is_admin?: 0 | 1 | boolean })
+    ?.is_admin;
 }
 
 function isActive(pathname: string | null, href: string): boolean {

@@ -18,6 +18,7 @@
 // See `/docs/DECISIONS.md` 2026-04-30 "Day 2 (Row 10) Tier 3" entry.
 
 import { ApiError } from "../../lib/errors";
+import { trackAnalytics } from "../../lib/analytics";
 import type { Bindings } from "../../env";
 import { logAudit } from "../admin/logic";
 import { VapiClient, VapiError } from "../../integrations/vapi";
@@ -342,6 +343,7 @@ export async function runScheduledDeletions(env: Bindings): Promise<{ purged: nu
     .bind(ts)
     .all<{ id: string }>();
 
+  let totalFailures = 0;
   for (const row of due.results ?? []) {
     let failures: PurgeFailure[] = [];
     try {
@@ -392,6 +394,13 @@ export async function runScheduledDeletions(env: Bindings): Promise<{ purged: nu
       after_value: failures.length > 0 ? { failure_count: failures.length } : undefined,
       ip_address: null,
     });
+    totalFailures += failures.length;
   }
-  return { purged: (due.results ?? []).length };
+  const result = { purged: (due.results ?? []).length };
+  // Best-effort sweep metric — surfaces in the dashboard usage widget.
+  trackAnalytics(env, {
+    event: "deletion_sweep",
+    metadata: { purged: result.purged, errors: totalFailures },
+  });
+  return result;
 }

@@ -7,6 +7,14 @@ main = "src/index.ts"
 compatibility_date = "2025-01-01"
 compatibility_flags = ["nodejs_compat"]
 
+# Enable Cloudflare Workers Observability — logs visible in dashboard
+# under api-staging → Logs (otherwise only `wrangler tail` works for logs).
+[observability]
+enabled = true
+[observability.logs]
+enabled = true
+invocation_logs = true
+
 # ---------------------------------------------------------------------------
 # Default (local dev) bindings — used by `wrangler dev`.
 # ---------------------------------------------------------------------------
@@ -186,6 +194,10 @@ queue = "usage-aggregation-staging"
 binding = "DIGEST_EMAILS_QUEUE"
 queue = "digest-emails-staging"
 
+[[env.preview.analytics_engine_datasets]]
+binding = "ANALYTICS"
+dataset = "agent_p_staging_metrics"
+
 # ---------------------------------------------------------------------------
 # Staging environment.
 # ---------------------------------------------------------------------------
@@ -273,6 +285,10 @@ index_name = "kb-embeddings-staging"
 
 [env.staging.ai]
 binding = "AI"
+
+[[env.staging.analytics_engine_datasets]]
+binding = "ANALYTICS"
+dataset = "agent_p_staging_metrics"
 
 [env.staging.triggers]
 crons = ["0 * * * *", "0 6 * * *"]

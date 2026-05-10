@@ -18,8 +18,9 @@ export default async function AdminLayout({
   const session = await getServerSession();
   if (!session) redirect("/login");
 
-  const isAdmin =
-    (session.user as unknown as { is_admin?: boolean })?.is_admin === true;
+  // SQLite returns INTEGER 0/1 for is_admin; treat truthy as admin.
+  const isAdmin = !!(session.user as unknown as { is_admin?: 0 | 1 | boolean })
+    ?.is_admin;
   if (!isAdmin) redirect("/dashboard");
 
   return (

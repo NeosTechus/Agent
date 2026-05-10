@@ -19,6 +19,7 @@
 // for paying customers.
 
 import { ApiError } from "../../lib/errors";
+import { trackAnalytics } from "../../lib/analytics";
 import { buildFinalSystemPrompt } from "../../lib/safety-prompt";
 import { VapiClient, STOCK_VOICES } from "../../integrations/vapi";
 import type { VapiVoiceListEntry } from "../../integrations/vapi";
@@ -520,6 +521,12 @@ export async function publishAgent(
       `UPDATE agents SET status = 'published', version = ?, updated_at = ? WHERE id = ?`,
     ).bind(agent.version + 1, ts, agentId),
   ]);
+
+  // Best-effort usage metric for the dashboard widget + billing sanity checks.
+  trackAnalytics(env, {
+    event: "agent_published",
+    organization_id: agent.organization_id,
+  });
 
   return { status: "published", agent: await getAgent(env, organizationId, agentId) };
 }

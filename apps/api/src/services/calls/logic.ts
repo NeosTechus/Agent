@@ -4,6 +4,7 @@
 // Owner-facing reads paginate via cursor over (created_at, id).
 
 import { ApiError } from "../../lib/errors";
+import { trackAnalytics } from "../../lib/analytics";
 import type { Bindings } from "../../env";
 import type { Call } from "./schemas";
 
@@ -458,6 +459,12 @@ export async function applyVapiMutation(
     } catch {
       // best-effort
     }
+    // Best-effort usage metric for the dashboard widget + billing sanity checks.
+    trackAnalytics(env, {
+      event: "call_completed",
+      organization_id: agent.organization_id,
+      duration_seconds: m.duration_seconds,
+    });
   }
 
   // PRD 5.21 — owner notified via email after every real (non-test) call.

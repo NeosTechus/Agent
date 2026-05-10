@@ -1,16 +1,18 @@
 // Password hashing + opaque-token utilities.
 //
 // Cloudflare Workers do not support Node's `crypto.scrypt` or argon2 natively
-// without WASM. We use PBKDF2-SHA256 via the WebCrypto SubtleCrypto API
-// available in Workers — 600,000 iterations per OWASP 2023 PBKDF2-SHA256
-// guidance. This is a Tier-2 call (see DECISIONS.md). Argon2id via WASM
-// (`@noble/hashes`) is the V2 upgrade path.
+// without WASM. We use PBKDF2-SHA256 via the WebCrypto SubtleCrypto API.
+// Workers' SubtleCrypto caps PBKDF2 iterations at 100,000 (any higher value
+// throws `NotSupportedError: iteration counts above 100000 are not supported`).
+// We use 100,000 — well above the 2017 OWASP minimum (10k) but below the
+// 2023 ideal of 600k. The format below is self-describing so we can switch
+// to argon2 via WASM (`@noble/hashes`) without a schema migration.
 //
 // Format stored in DB column `password_hash`:
 //   pbkdf2$sha256$<iterations>$<saltB64>$<hashB64>
 // Self-describing so the work-factor can be raised without a migration.
 
-const PBKDF2_ITERATIONS = 600_000;
+const PBKDF2_ITERATIONS = 100_000;
 const KEY_LENGTH_BITS = 256;
 const SALT_BYTES = 16;
 

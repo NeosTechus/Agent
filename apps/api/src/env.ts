@@ -54,6 +54,13 @@ export interface Bindings {
   AI: Ai;
 
   // ---------------------------------------------------------------------
+  // Workers Analytics Engine — per-customer usage metrics (call counts,
+  // voice minutes, agent publishes, etc.). Optional so dev/test runs that
+  // don't bind it stay safe. Bound from `[[env.<env>.analytics_engine_datasets]]`.
+  // ---------------------------------------------------------------------
+  ANALYTICS?: AnalyticsEngineDataset;
+
+  // ---------------------------------------------------------------------
   // Plain env vars / secrets (typed but unused in Phase 1 skeleton).
   // Wired via `wrangler secret put` and Cloudflare dashboard env vars.
   // ---------------------------------------------------------------------
