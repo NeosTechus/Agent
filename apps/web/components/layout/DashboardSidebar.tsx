@@ -78,52 +78,62 @@ export function DashboardSidebar() {
         </Link>
       </div>
       <nav className="flex flex-1 flex-col gap-1 overflow-y-auto p-4">
-        {DASHBOARD_NAV.map((item) => {
-          const active = isActive(pathname, item.href);
-          return (
+        {/* Admins see only their admin tools + Settings (for logout/account
+            management). Customer-facing features are hidden so the founder
+            can't accidentally publish/test agents against the staff org. */}
+        {isAdmin ? (
+          <>
+            {ADMIN_NAV.map((item) => {
+              const active = isActive(pathname, item.href);
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  aria-current={active ? "page" : undefined}
+                  className={cn(
+                    "rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                    active
+                      ? "bg-primary/10 text-primary"
+                      : "text-ink-muted hover:bg-surface hover:text-ink",
+                  )}
+                >
+                  {item.label}
+                </Link>
+              );
+            })}
             <Link
-              key={item.href}
-              href={item.href}
-              aria-current={active ? "page" : undefined}
+              href="/settings"
+              aria-current={isActive(pathname, "/settings") ? "page" : undefined}
               className={cn(
-                "rounded-md px-3 py-2 text-sm font-medium transition-colors",
-                active
+                "mt-4 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                isActive(pathname, "/settings")
                   ? "bg-primary/10 text-primary"
                   : "text-ink-muted hover:bg-surface hover:text-ink",
               )}
             >
-              {item.label}
+              Settings
             </Link>
-          );
-        })}
-
-        {isAdmin ? (
-          <div className="mt-6">
-            <p className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-wider text-ink-subtle">
-              Admin
-            </p>
-            <div className="flex flex-col gap-1">
-              {ADMIN_NAV.map((item) => {
-                const active = isActive(pathname, item.href);
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    aria-current={active ? "page" : undefined}
-                    className={cn(
-                      "rounded-md px-3 py-2 text-sm font-medium transition-colors",
-                      active
-                        ? "bg-primary/10 text-primary"
-                        : "text-ink-muted hover:bg-surface hover:text-ink",
-                    )}
-                  >
-                    {item.label}
-                  </Link>
-                );
-              })}
-            </div>
-          </div>
-        ) : null}
+          </>
+        ) : (
+          DASHBOARD_NAV.map((item) => {
+            const active = isActive(pathname, item.href);
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                aria-current={active ? "page" : undefined}
+                className={cn(
+                  "rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                  active
+                    ? "bg-primary/10 text-primary"
+                    : "text-ink-muted hover:bg-surface hover:text-ink",
+                )}
+              >
+                {item.label}
+              </Link>
+            );
+          })
+        )}
       </nav>
       <UsageWidget />
     </aside>
@@ -224,7 +234,10 @@ function planIncludedMinutes(tier: string | null | undefined): number | null {
 export function DashboardMobileNav() {
   const pathname = usePathname();
   const isAdmin = useIsAdmin();
-  const items = isAdmin ? [...DASHBOARD_NAV, ...ADMIN_NAV] : DASHBOARD_NAV;
+  // Admins see admin tools + Settings only; regular users see customer nav.
+  const items = isAdmin
+    ? [...ADMIN_NAV, { href: "/settings", label: "Settings" }]
+    : DASHBOARD_NAV;
 
   return (
     <nav className="flex gap-1 overflow-x-auto border-b border-border bg-white px-4 py-2 md:hidden">
