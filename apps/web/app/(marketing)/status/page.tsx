@@ -33,11 +33,11 @@ export default function StatusPage() {
 
   return (
     <section className="mx-auto max-w-content px-6 py-20">
-      <h1 className="text-3xl font-semibold tracking-tight text-ink md:text-[40px]">
+      <h1 className="text-3xl font-semibold tracking-tight text-white md:text-[40px]">
         System status
       </h1>
       {query.isLoading ? (
-        <p className="mt-6 text-ink-muted">Checking…</p>
+        <p className="mt-6 text-slate-300">Checking…</p>
       ) : query.isError ? (
         <p className="mt-6 text-red-600">Could not reach the status endpoint.</p>
       ) : query.data ? (

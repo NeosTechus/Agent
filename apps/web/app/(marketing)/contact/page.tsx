@@ -7,10 +7,10 @@ export default function ContactPage() {
         <p className="text-sm font-medium uppercase tracking-wide text-primary">
           Contact
         </p>
-        <h1 className="mt-4 text-4xl font-semibold tracking-tight text-ink md:text-[56px] md:leading-[1.1]">
+        <h1 className="mt-4 text-4xl font-semibold tracking-tight text-white md:text-[56px] md:leading-[1.1]">
           Talk to us.
         </h1>
-        <p className="mt-6 text-lg text-ink-muted">
+        <p className="mt-6 text-lg text-slate-300">
           Got a multi-location operation, an unusual workflow, or a question
           before you sign up? Send us a note and we&apos;ll get back to you
           within one business day.
@@ -24,7 +24,7 @@ export default function ContactPage() {
             sales@example.com
           </a>
         </div>
-        <p className="mt-6 text-sm text-ink-subtle">
+        <p className="mt-6 text-sm text-slate-400">
           Looking for support instead?{" "}
           <a
             href="mailto:support@example.com"

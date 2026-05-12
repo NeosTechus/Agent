@@ -37,10 +37,10 @@ export default function FaqPage() {
   return (
     <section className="mx-auto max-w-content px-6 py-20">
       <div className="max-w-2xl">
-        <h1 className="text-4xl font-semibold tracking-tight text-ink md:text-[56px] md:leading-[1.1]">
+        <h1 className="text-4xl font-semibold tracking-tight text-white md:text-[56px] md:leading-[1.1]">
           Frequently asked questions
         </h1>
-        <p className="mt-6 text-lg text-ink-muted">
+        <p className="mt-6 text-lg text-slate-300">
           More answers in our{" "}
           <a href="/contact" className="text-indigo-600 hover:underline">
             contact form

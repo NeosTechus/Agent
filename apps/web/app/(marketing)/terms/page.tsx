@@ -9,7 +9,7 @@ export default function TermsPage() {
   return (
     <article className="mx-auto max-w-content px-6 py-20 prose prose-slate">
       <h1>Terms of Service</h1>
-      <p className="text-sm text-ink-muted">Last updated: April 30, 2026</p>
+      <p className="text-sm text-slate-300">Last updated: April 30, 2026</p>
 
       <h2>1. Agreement</h2>
       <p>
