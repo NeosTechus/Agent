@@ -14,6 +14,12 @@ const nextConfig: NextConfig = {
     const apiOrigin = process.env.API_PROXY_ORIGIN ?? "http://localhost:8787";
     return [
       { source: "/v1/:path*", destination: `${apiOrigin}/v1/:path*` },
+      // Google OAuth callback: the redirect URI registered in Google
+      // Console (and the secret GOOGLE_OAUTH_REDIRECT_URI) points at
+      // `/api/auth/oauth/google/callback` on the customer app. There is
+      // no Next.js route at that path — proxy it to the backend's
+      // `/v1/auth/oauth/*` handler instead.
+      { source: "/api/auth/:path*", destination: `${apiOrigin}/v1/auth/:path*` },
     ];
   },
 };
